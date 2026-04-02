@@ -1,8 +1,15 @@
 // Quick fetch script - runs SGS + USASpending fetchers
+// Reads credentials from .env.local — run from project root
 const { createClient } = require('@supabase/supabase-js');
+const { readFileSync } = require('fs');
+const { resolve } = require('path');
 
-process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://gvxycyjxzikyhmnumphx.supabase.co';
-process.env.SUPABASE_SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2eHljeWp4emlreWhtbnVtcGh4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTE1NjA5NywiZXhwIjoyMDkwNzMyMDk3fQ.zUhE1eEvgBm6RBfRVrztVtlJwW8ECd05XdP1VSgGA1Y';
+// Load .env.local
+const envPath = resolve(__dirname, '..', '.env.local');
+readFileSync(envPath, 'utf8').split('\n').forEach(line => {
+  const [key, ...rest] = line.split('=');
+  if (key && rest.length) process.env[key.trim()] = rest.join('=').trim();
+});
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 

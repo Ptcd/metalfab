@@ -1,0 +1,52 @@
+import { createServiceClient } from "@/lib/db/supabase";
+import { Opportunity } from "@/types/opportunity";
+import { PipelineTable } from "./PipelineTable";
+
+export const dynamic = "force-dynamic";
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: { status?: string; score_min?: string; score_max?: string; search?: string };
+}) {
+  const supabase = createServiceClient();
+
+  let query = supabase
+    .from("opportunities")
+    .select("*", { count: "exact" })
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (searchParams.status) query = query.eq("status", searchParams.status);
+  if (searchParams.score_min) query = query.gte("score", parseInt(searchParams.score_min));
+  if (searchParams.score_max) query = query.lte("score", parseInt(searchParams.score_max));
+  if (searchParams.search) {
+    query = query.or(
+      `title.ilike.%${searchParams.search}%,agency.ilike.%${searchParams.search}%`
+    );
+  }
+
+  // Load config for score thresholds
+  const { data: config } = await supabase
+    .from("scoring_config")
+    .select("score_green, score_yellow")
+    .limit(1)
+    .single();
+
+  const { data, count } = await query;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Pipeline</h2>
+      </div>
+      <PipelineTable
+        opportunities={(data as Opportunity[]) ?? []}
+        count={count ?? 0}
+        greenThreshold={config?.score_green ?? 70}
+        yellowThreshold={config?.score_yellow ?? 40}
+        filters={searchParams}
+      />
+    </div>
+  );
+}

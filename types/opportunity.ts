@@ -16,6 +16,7 @@ export interface Opportunity {
   point_of_contact: string | null;
   contact_email: string | null;
   source_url: string | null;
+  place_of_performance: string | null;
   source: string;
   raw_data: Record<string, unknown> | null;
   score: number;
@@ -47,6 +48,7 @@ export interface OpportunityInsert {
   point_of_contact?: string | null;
   contact_email?: string | null;
   source_url?: string | null;
+  place_of_performance?: string | null;
   source?: string;
   raw_data?: Record<string, unknown> | null;
   notes?: string | null;

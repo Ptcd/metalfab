@@ -18,7 +18,12 @@ interface SamOpportunity {
   subTier?: string;
   naicsCode?: string;
   naicsSolicitationDescription?: string;
-  award?: { amount?: number };
+  award?: { amount?: number | string; floor?: number | string; ceiling?: number | string };
+  awardFloor?: number | string;
+  awardCeiling?: number | string;
+  estimatedTotalValue?: number | string;
+  baseAndAllOptionsValue?: number | string;
+  placeOfPerformance?: { city?: string; state?: string; country?: string } | Record<string, unknown>;
   pointOfContact?: Array<{ fullName?: string; email?: string }>;
   archiveDate?: string;
   responseDeadLine?: string;
@@ -35,12 +40,47 @@ function formatDate(d: Date): string {
   return `${mm}/${dd}/${yyyy}`;
 }
 
+/** Safely coerce a value to a finite number, or return null. */
+function toNumber(val: unknown): number | null {
+  if (val == null) return null;
+  const n = typeof val === 'number' ? val : parseFloat(String(val).replace(/[$,]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
 function extractDollarRange(opp: SamOpportunity): { min: number | null; max: number | null } {
-  const amount = opp.award?.amount;
+  // 1. Check award.floor / award.ceiling (most specific range)
+  const awardFloor = toNumber(opp.award?.floor);
+  const awardCeiling = toNumber(opp.award?.ceiling);
+  if (awardFloor != null || awardCeiling != null) {
+    return { min: awardFloor, max: awardCeiling ?? awardFloor };
+  }
+
+  // 2. Check top-level awardFloor / awardCeiling
+  const topFloor = toNumber(opp.awardFloor);
+  const topCeiling = toNumber(opp.awardCeiling);
+  if (topFloor != null || topCeiling != null) {
+    return { min: topFloor, max: topCeiling ?? topFloor };
+  }
+
+  // 3. Check award.amount (single dollar figure)
+  const amount = toNumber(opp.award?.amount);
   if (amount != null) {
     return { min: amount, max: amount };
   }
-  // Try to parse from description
+
+  // 4. Check estimatedTotalValue
+  const estimated = toNumber(opp.estimatedTotalValue);
+  if (estimated != null) {
+    return { min: estimated, max: estimated };
+  }
+
+  // 5. Check baseAndAllOptionsValue
+  const baseAll = toNumber(opp.baseAndAllOptionsValue);
+  if (baseAll != null) {
+    return { min: baseAll, max: baseAll };
+  }
+
+  // 6. Fallback: try to parse dollar amounts from description text
   const text = opp.description ?? '';
   const dollarMatch = text.match(/\$[\d,]+(?:\.\d{2})?/g);
   if (dollarMatch && dollarMatch.length >= 1) {
@@ -52,6 +92,7 @@ function extractDollarRange(opp: SamOpportunity): { min: number | null; max: num
       return { min: values[0], max: values[0] };
     }
   }
+
   return { min: null, max: null };
 }
 
@@ -110,6 +151,11 @@ function normalizeOpportunity(raw: SamOpportunity): OpportunityInsert {
     point_of_contact: poc?.fullName ?? null,
     contact_email: poc?.email ?? null,
     source_url: raw.uiLink ?? null,
+    place_of_performance: raw.placeOfPerformance
+      ? typeof raw.placeOfPerformance === 'object'
+        ? JSON.stringify(raw.placeOfPerformance)
+        : String(raw.placeOfPerformance)
+      : null,
     source: 'samgov',
     raw_data: raw as Record<string, unknown>,
   };
@@ -148,5 +194,12 @@ export async function fetchSamGovOpportunities(
     }
   }
 
-  return allRaw.map(normalizeOpportunity);
+  // Filter out non-biddable opportunity types before normalizing
+  const EXCLUDED_TYPE_PATTERNS = [/award/i, /justification/i, /sole source/i];
+  const biddable = allRaw.filter((opp) => {
+    const t = opp.type ?? '';
+    return !EXCLUDED_TYPE_PATTERNS.some((pattern) => pattern.test(t));
+  });
+
+  return biddable.map(normalizeOpportunity);
 }

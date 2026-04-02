@@ -32,3 +32,12 @@ export interface ScoreResult {
   score: number;
   signals: ScoreSignal[];
 }
+
+export interface ScoringInput {
+  title: string;
+  description: string | null;
+  naics_code: string | null;
+  dollar_min: number | null;
+  dollar_max: number | null;
+  place_of_performance?: string;
+}

@@ -1,11 +1,12 @@
 import { ScoringConfig, ScoreResult, ScoreSignal } from '@/types/scoring';
 
-interface ScoringInput {
+export interface ScoringInput {
   title: string;
   description: string | null;
   naics_code: string | null;
   dollar_min: number | null;
   dollar_max: number | null;
+  place_of_performance?: string;
 }
 
 function textContains(text: string, keyword: string): boolean {
@@ -16,7 +17,49 @@ function searchableText(input: ScoringInput): string {
   return [input.title, input.description].filter(Boolean).join(' ');
 }
 
-export function scoreOpportunity(input: ScoringInput, config: ScoringConfig): ScoreResult {
+/**
+ * Overseas / non-continental-US indicators used by the Continental US signal.
+ * If any of these substrings appear in the place_of_performance field the
+ * signal will NOT fire (opportunity is likely outside CONUS).
+ */
+const OVERSEAS_INDICATORS = [
+  'japan',
+  'korea',
+  'germany',
+  'overseas',
+  'foreign',
+  'oconus',
+  'far east',
+  'pacific',
+  'europe',
+  'middle east',
+  'guam',
+  'puerto rico',
+  'hawaii',
+  'alaska',
+];
+
+/**
+ * Check whether the opportunity's place of performance is Continental US.
+ * Returns true (fire the +10 signal) when:
+ *   - No place data is provided (default to CONUS)
+ *   - Place data exists but contains none of the overseas indicators
+ */
+function isContinentalUS(place: string | undefined): boolean {
+  if (!place) return true; // default to CONUS when unknown
+  const lower = place.toLowerCase();
+  return !OVERSEAS_INDICATORS.some((indicator) => lower.includes(indicator));
+}
+
+export function scoreOpportunity(input: ScoringInput, config: ScoringConfig | null | undefined): ScoreResult {
+  // Guard: if config is missing, return score 0 with an explanation signal
+  if (!config) {
+    return {
+      score: 0,
+      signals: [{ signal: 'No config loaded', delta: 0, fired: true }],
+    };
+  }
+
   const signals: ScoreSignal[] = [];
   const text = searchableText(input);
 
@@ -33,6 +76,12 @@ export function scoreOpportunity(input: ScoringInput, config: ScoringConfig): Sc
   signals.push({ signal: 'Dollar range match', delta: 20, fired: dollarInRange });
 
   // Primary keyword match: +20
+  // DEFAULT primary keywords (actual list loaded from DB/Supabase config):
+  //   welding, fabrication, metalwork, steel fabrication, structural steel,
+  //   handrail, railing, misc metals, miscellaneous metals, metal stairs,
+  //   stair rail, guardrail, bollard, ladder, platform, canopy, awning,
+  //   metal door frame, hollow metal, aluminum welding, stainless steel,
+  //   ornamental iron, wrought iron, metal repair, weld repair
   const primaryHit = config.keyword_primary.some((kw) => textContains(text, kw));
   signals.push({ signal: 'Primary keyword match', delta: 20, fired: primaryHit });
 
@@ -40,8 +89,9 @@ export function scoreOpportunity(input: ScoringInput, config: ScoringConfig): Sc
   const secondaryHit = config.keyword_secondary.some((kw) => textContains(text, kw));
   signals.push({ signal: 'Secondary keyword match', delta: 10, fired: secondaryHit });
 
-  // Continental US (always true for SAM.gov — domestic opportunities): +10
-  signals.push({ signal: 'Continental US', delta: 10, fired: true });
+  // Continental US: +10 — check place_of_performance for overseas indicators
+  const continentalUS = isContinentalUS(input.place_of_performance);
+  signals.push({ signal: 'Continental US', delta: 10, fired: continentalUS });
 
   // --- Negative signals ---
 
@@ -63,12 +113,12 @@ export function scoreOpportunity(input: ScoringInput, config: ScoringConfig): Sc
   signals.push({ signal: 'Dollar value above $2M', delta: -20, fired: tooLarge });
 
   // Supply-only (no fabrication/installation): -20
+  // Only fires on exact supply-only phrases, not the word "supply" by itself
   const supplyOnly =
     textContains(text, 'supply only') ||
     textContains(text, 'supply-only') ||
-    (textContains(text, 'supply') &&
-      !textContains(text, 'fabricat') &&
-      !textContains(text, 'install'));
+    textContains(text, 'supplies only') ||
+    textContains(text, 'material supply');
   signals.push({ signal: 'Supply-only (no fabrication)', delta: -20, fired: supplyOnly });
 
   // Disqualifying certifications: -15

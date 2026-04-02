@@ -2,11 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/db/supabase';
 import { scoreOpportunity } from '@/lib/scoring/engine';
 import { ScoringConfig } from '@/types/scoring';
+import { getAuthUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 // GET /api/opportunities — list with filters
 export async function GET(request: NextRequest) {
+  const user = await getAuthUser(request);
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const supabase = createServiceClient();
   const params = request.nextUrl.searchParams;
 
@@ -53,6 +59,11 @@ export async function GET(request: NextRequest) {
 
 // POST /api/opportunities — create manual opportunity
 export async function POST(request: NextRequest) {
+  const user = await getAuthUser(request);
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const supabase = createServiceClient();
 
   let body;

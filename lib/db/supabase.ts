@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient as createSSRBrowserClient } from '@supabase/ssr';
 
 // Server-side client with service role key (bypasses RLS)
 export function createServiceClient() {
@@ -7,9 +8,11 @@ export function createServiceClient() {
   return createClient(url, key);
 }
 
-// Browser-side client with anon key (respects RLS)
+// Browser-side client with anon key — uses @supabase/ssr so auth tokens
+// are stored in cookies (not localStorage), matching the middleware.
 export function createBrowserClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createClient(url, key);
+  return createSSRBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 }

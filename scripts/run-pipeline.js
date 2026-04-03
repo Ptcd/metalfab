@@ -30,6 +30,8 @@ const FETCHERS = {
   'questcdn':      { script: 'fetch-questcdn.js',     headless: false, timeout: 30000 },
   'wi-munis':      { script: 'fetch-wi-municipalities.js', headless: false, timeout: 60000 },
   'bonfire':       { script: 'fetch-bonfire.js',          headless: true,  timeout: 120000 },
+  'sturtevant':    { script: 'fetch-sturtevant.js',      headless: true,  timeout: 60000 },
+  'bidbuy':        { script: 'fetch-bidbuy.js',          headless: true,  timeout: 300000 },
 };
 
 const POST_SCRIPTS = [

@@ -334,6 +334,32 @@ function isDefinitelyNotMetalFab(title, desc) {
     'water main', 'area water',
     'park master plan', 'park design',
     'engineering & park',
+    // Round 9 — DemandStar/BidNet cleanup + more non-metalfab
+    'pavement rejuvenation', 'chip seal', 'chip sealing',
+    'emerald ash borer', 'ash borer treatment',
+    'stadium cup', 'promotional item',
+    'inmate core values', 'behavior coaching', 'inmate coaching',
+    'yard waste', 'yard waste material', 'transportation & disposal of yard',
+    'it infrastructure', 'it services',
+    'medical and laboratory', 'medical supplies', 'laboratory supplies',
+    'paratransit', 'contracted transit service',
+    'manufacturing of banners', 'banner manufacturing',
+    'shredding event', 'paper shredding',
+    'debris monitoring', 'emergency debris monitoring',
+    'regular/standard cab', '1/2 ton 4x2 truck', 'truck purchase',
+    'government center windows', 'window replacement',
+    'beach volleyball', 'volleyball drainage',
+    'northwest expansion & transportation plan',
+    'cnc digital cutter system',
+    'materials testing and inspection',
+    'fire pump and generator',
+    'fairview avenue', 'county road b2',
+    'invasive species maintenance',
+    'shoes for inmate', 'iic shoes', 'custody shoes',
+    'homestead green door',
+    'iic shoes', 'custody (iic) shoes', 'inmate.*shoes',
+    's 72 st; washington', // road project
+    'pavement management', 'street resurfacing',
   ];
 
   return notMetalFab.some(pattern => text.includes(pattern));
@@ -394,6 +420,13 @@ function isOpaqueBidNumber(title) {
   if (/^RFP\s*#\d+$/i.test(t)) return true;
   // WS/WA/WP Milwaukee County codes without description
   if (/^W[A-Z]\d{4,}:?\s*$/.test(t)) return true;
+  // DemandStar numeric-only codes: "202604023901"
+  if (/^\d{10,}$/.test(t)) return true;
+  // DemandStar address-like: "2026TCLMO-20 3233 7th St. Moline, IL"
+  if (/^\d{4}[A-Z]{3,}-\d+\s+\d+/.test(t)) return true;
+  // BidBuy Illinois format: "26-557THA-ENGCO-B-50362", "Illinois Bid 26-..."
+  if (/^\d{2}-\d{3}[A-Z]{2,6}-[A-Z0-9]+-[A-Z]-\d{4,6}$/.test(t)) return true;
+  if (/^Illinois Bid \d{2}-\d{3}/.test(t)) return true;
   return false;
 }
 

@@ -149,11 +149,14 @@ async function scrapeCivicEngage(name, url, prefix) {
     if (text.includes('Department\n')) return;
 
     // Skip obvious navigation/footer links
-    if (/create a website|download adobe|employee wellness|workforce|facebook|twitter|linkedin|agendas? & minutes|birth.*death|land info|aging.*disability|facilities rental|lasata|citizen engagement|calendar|how do i|pay online|report a concern|maps|register to vote|tax bill|traffic acciden|street light|building permit|copyright/i.test(text)) return;
+    if (/create a website|download adobe|employee wellness|workforce|facebook|twitter|linkedin|agendas? & minutes|birth.*death|land info|aging.*disability|facilities rental|lasata|citizen engagement|calendar|how do i|pay online|report a concern|maps|register to vote|tax bill|traffic acciden|street light|building permit|copyright|contact us|home page|site map|accessibility|privacy policy|terms of use|government websites|powered by|civicplus|email notifications|notify me|rss|subscribe|log ?in|sign ?in|my account|career|job opening|employment|volunteer|parks? ?&? ?rec|library|public health|human service|sheriff|clerk|treasurer|zoning|planning|board.*meeting|committee|commission|ordinance|resolution|election|recycl|compost|yard waste|pet licen|dog licen|camping|boat launch|pool|aquatic|museum|historical|genealogy|vital record/i.test(text)) return;
 
-    // Must look like a real bid title, not a UI element
+    // Skip links to common CMS sections (not bids)
+    if (/\/(Faq|FAQ|Calendar|Alerts|Notify|Archive|News|Directory|Departments|Services|Government|Residents|Visitors|Business|Community|About)\//i.test(href)) return;
+
+    // Must look like a real bid title — strongly prefer /Bids/ links or PDFs
     if (href.includes('/Bids/') || href.includes('/bids/') || href.includes('.pdf') ||
-        (text.length > 15 && !href.includes('#') && !href.includes('javascript') && !href.includes('CivicAlerts') && !href.includes('FAQ'))) {
+        (text.length > 20 && !href.includes('#') && !href.includes('javascript') && !href.includes('CivicAlerts') && !href.includes('FAQ') && !href.includes('/Departments/') && !href.includes('/Services/'))) {
 
       // Clean up multiline text artifacts
       const cleanText = text.replace(/\s+/g, ' ').replace(/View Full.*$/, '').trim();

@@ -256,6 +256,7 @@ async function importToSupabase(opportunities, provider) {
         source_url: opp.url,
         agency: provider.name,
         response_deadline: dueDate || null,
+        place_of_performance: `${provider.name}, WI`,
         description: opp.closingDate ? `Closing: ${opp.closingDate}` : null,
         raw_data: JSON.stringify({ ...opp, provider: provider.name, scraped_at: new Date().toISOString() }),
         posted_date: new Date().toISOString().split('T')[0]

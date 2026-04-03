@@ -357,7 +357,7 @@ async function scrape() {
           source: 'demandstar',
           status: 'new',
           source_url: bid.url,
-          agency: bid.agency || 'DemandStar',
+          agency: (bid.agency && !bid.agency.includes('Dashboard') && !bid.agency.includes('\n') && bid.agency.length < 100) ? bid.agency : 'DemandStar',
           response_deadline: dueDate,
           posted_date: postedDate,
           place_of_performance: bid.location || state,

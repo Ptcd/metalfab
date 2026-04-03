@@ -33,7 +33,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <p className="text-xs text-slate-500 dark:text-slate-400">Bid Pipeline</p>
         </div>
         <nav className="flex-1 p-3 space-y-1">
-          <NavLink href="/dashboard">Dashboard</NavLink>
+          <NavLink href="/today">Today</NavLink>
+          <NavLink href="/dashboard">Pipeline</NavLink>
           <NavLink href="/activity">Activity</NavLink>
           <NavLink href="/config">Config</NavLink>
         </nav>

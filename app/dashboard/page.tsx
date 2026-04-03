@@ -11,13 +11,18 @@ export default async function DashboardPage({
 }) {
   const supabase = createServiceClient();
 
+  // Default to "new" status so the dashboard shows biddable opportunities first
+  const activeStatus = searchParams.status ?? "new";
+
   let query = supabase
     .from("opportunities")
     .select("*", { count: "exact" })
-    .order("created_at", { ascending: false })
+    .order("score", { ascending: false })
+    .order("response_deadline", { ascending: true })
     .limit(100);
 
-  if (searchParams.status) query = query.eq("status", searchParams.status);
+  // "all" shows everything, otherwise filter by status
+  if (activeStatus !== "all") query = query.eq("status", activeStatus);
   if (searchParams.score_min) query = query.gte("score", parseInt(searchParams.score_min));
   if (searchParams.score_max) query = query.lte("score", parseInt(searchParams.score_max));
   if (searchParams.search) {

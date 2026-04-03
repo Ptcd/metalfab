@@ -61,11 +61,11 @@ export function PipelineTable({ opportunities, count, greenThreshold, yellowThre
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <select
-          value={filters.status ?? ""}
+          value={filters.status ?? "new"}
           onChange={(e) => updateFilter("status", e.target.value)}
           className="rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm text-slate-900 dark:text-white"
         >
-          <option value="">All Statuses</option>
+          <option value="all">All Statuses</option>
           {statuses.filter(Boolean).map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}

@@ -15,13 +15,16 @@ const KEYWORD_GROUPS = [
   'canopy awning',
 ];
 
-/** Opportunity types that are not biddable */
+/** Opportunity types that are not biddable — filter these out */
 const EXCLUDED_TYPES = new Set([
   'Award Notice',
   'Justification and Approval',
   'Justification',
   'Intent to Bundle Requirements',
   'Fair Opportunity / Limited Sources Justification',
+  'Presolicitation',
+  'Sources Sought',
+  'Special Notice',
 ]);
 
 /** Delay between API calls to be respectful of the server */

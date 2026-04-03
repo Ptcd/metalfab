@@ -195,7 +195,7 @@ export async function fetchSamGovOpportunities(
   }
 
   // Filter out non-biddable opportunity types before normalizing
-  const EXCLUDED_TYPE_PATTERNS = [/award/i, /justification/i, /sole source/i];
+  const EXCLUDED_TYPE_PATTERNS = [/award/i, /justification/i, /sole source/i, /presolicitation/i, /sources sought/i, /special notice/i];
   const biddable = allRaw.filter((opp) => {
     const t = opp.type ?? '';
     return !EXCLUDED_TYPE_PATTERNS.some((pattern) => pattern.test(t));

@@ -23,6 +23,11 @@ export default async function DashboardPage({
 
   // "all" shows everything, otherwise filter by status
   if (activeStatus !== "all") query = query.eq("status", activeStatus);
+
+  // Hide expired opportunities (past deadline) unless explicitly viewing all or passed
+  if (activeStatus === "new" || activeStatus === "reviewing") {
+    query = query.or("response_deadline.is.null,response_deadline.gte." + new Date().toISOString());
+  }
   if (searchParams.score_min) query = query.gte("score", parseInt(searchParams.score_min));
   if (searchParams.score_max) query = query.lte("score", parseInt(searchParams.score_max));
   if (searchParams.search) {

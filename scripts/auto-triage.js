@@ -299,6 +299,31 @@ function looksLikeMetalFab(title, desc) {
 }
 
 // ============================================================
+// POSITIVE SIGNALS — things that suggest auto salvage / scrap yard
+// ============================================================
+
+function looksLikeSalvageYard(title, desc) {
+  const text = (title + ' ' + (desc || '')).toLowerCase();
+  const salvageIndicators = [
+    'towing service', 'tow service', 'tow contract', 'vehicle tow',
+    'impound', 'vehicle impound',
+    'vehicle disposal', 'vehicle removal', 'junk vehicle', 'junked vehicle',
+    'abandon vehicle', 'abandoned vehicle',
+    'scrap metal', 'scrap vehicle', 'scrap car', 'scrap auto',
+    'salvage vehicle', 'salvage auto', 'auto salvage',
+    'surplus vehicle', 'sale of surplus', 'fleet disposal',
+    'vehicle auction', 'auto auction',
+    'recycled auto part', 'used auto part', 'recycled part',
+    'auto part', 'vehicle part',
+    'crushing', 'vehicle crushing', 'car crusher',
+    'fleet maintenance', 'vehicle maintenance',
+    'body shop', 'auto body', 'collision repair',
+  ];
+
+  return salvageIndicators.some(indicator => text.includes(indicator));
+}
+
+// ============================================================
 // MAIN TRIAGE LOGIC
 // ============================================================
 
@@ -349,22 +374,36 @@ async function run() {
       reason = 'Auto-passed: Not metal fabrication work';
     }
 
-    if (reason) {
+    // Check positive signals BEFORE auto-pass (salvage bids might match "not metal fab" patterns)
+    const isMetalFab = looksLikeMetalFab(title, desc);
+    const isSalvage = looksLikeSalvageYard(title, desc);
+
+    if (isMetalFab || isSalvage) {
+      // Positive match — move to reviewing with business tag
+      const biz = isMetalFab ? 'metalfab' : 'salvage';
+      const label = isMetalFab ? 'metal fab' : 'salvage yard';
+      const note = `Auto-review: Title/description contains ${label} keywords. Score: ${opp.score}. Needs human/AI deep review.`;
+      const updateData = { status: 'reviewing', notes: note };
+      // Only set business column if it exists (migration may not have run yet)
+      try {
+        await supabase.from('opportunities')
+          .update({ ...updateData, business: biz })
+          .eq('id', opp.id);
+      } catch (e) {
+        await supabase.from('opportunities')
+          .update(updateData)
+          .eq('id', opp.id);
+      }
+      autoReview++;
+      reviewed.push({ ...opp, business: biz });
+      console.log(`  REVIEW [${biz}]: ${title.slice(0, 50)} [${opp.score}]`);
+    } else if (reason) {
       // Auto-pass
       await supabase.from('opportunities')
         .update({ status: 'passed', notes: reason })
         .eq('id', opp.id);
       passed++;
       console.log(`  PASS: ${title.slice(0, 55)} → ${reason.slice(0, 40)}`);
-    } else if (looksLikeMetalFab(title, desc)) {
-      // Auto-move to reviewing if it has strong metal fab signals AND decent score
-      const note = `Auto-review: Title/description contains metal fab keywords. Score: ${opp.score}. Needs human/AI deep review of SOW.`;
-      await supabase.from('opportunities')
-        .update({ status: 'reviewing', notes: note })
-        .eq('id', opp.id);
-      autoReview++;
-      reviewed.push(opp);
-      console.log(`  REVIEW: ${title.slice(0, 55)} [${opp.score}]`);
     } else {
       // Survivor — needs Claude review (kept as "new")
       kept++;

@@ -21,11 +21,17 @@ function toNum(v) {
 }
 
 const KEYWORDS = [
+  // TCB Metalworks
   'metal fabrication', 'structural steel', 'handrail', 'railing',
   'ornamental metal', 'steel fabrication', 'welding fabrication',
   'fencing gate', 'misc metals', 'canopy awning', 'steel door',
   'ironwork', 'guardrail', 'bollard', 'metal enclosure', 'steel platform',
-  'stairs metal', 'steel railing', 'metal railing'
+  'stairs metal', 'steel railing', 'metal railing',
+  // On Kaul Auto Salvage
+  'vehicle towing', 'towing service', 'vehicle disposal',
+  'scrap vehicle', 'salvage vehicle', 'surplus vehicle',
+  'abandoned vehicle removal', 'junk vehicle',
+  'auto parts recycled', 'vehicle auction',
 ];
 
 async function fetchSGS() {

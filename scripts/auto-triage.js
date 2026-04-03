@@ -231,6 +231,12 @@ function isDefinitelyNotMetalFab(title, desc) {
     'ogden point renovation',
     'saukville-waldo', // road project
     'concrete foundation rfp', 'foundation rfp - concrete',
+    // Round 5 — Milwaukee city bids & general non-metal-fab
+    'vending machine', 'crash and incident', 'cost recovery',
+    'hearing screening', 'newborn hearing', 'natus algo',
+    'topsoil', 'topsoil delivery',
+    'tire retread', 'tire repair', 'tire service',
+    'end ring coupling', 'coupling',
   ];
 
   return notMetalFab.some(pattern => text.includes(pattern));

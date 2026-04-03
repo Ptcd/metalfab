@@ -212,6 +212,25 @@ function isDefinitelyNotMetalFab(title, desc) {
     'street maintenance', 'street program',
     'reconstruction', // broad but catches road/street reconstruction
     'sewer',
+    // Round 4 — catch more BidNet/DemandStar non-metal-fab
+    'wwtf', 'wastewater facility', 'wwtf upgrade',
+    'grit piping', 'piping replacement',
+    'trail phase', 'trail project', 'trail construction',
+    'real estate brokerage', 'real estate service', 'brokerage service',
+    'electric energy provider', 'energy provider', 'electricity supply',
+    'turf chemical', 'turf treatment', 'chemical treatment',
+    'environmental service', 'environmental consult',
+    'safety relief valve', 'relief valve', 'valve repair', 'valve test',
+    'storm structure', 'creek crossing', 'creek protection',
+    'lead service line', 'lead line replacement',
+    'basin expansion', 'retention basin', 'detention basin',
+    'laboratory construction', 'public health lab',
+    'concrete proposal', 'concrete and sidewalk',
+    'road storm', 'road & cranberry', // specific project names that are road work
+    'white pine heights', // housing development
+    'ogden point renovation',
+    'saukville-waldo', // road project
+    'concrete foundation rfp', 'foundation rfp - concrete',
   ];
 
   return notMetalFab.some(pattern => text.includes(pattern));
@@ -293,6 +312,7 @@ function looksLikeMetalFab(title, desc) {
     'columbari', // columbarium/columbaria - metal/stone memorial
     'tap box', // electrical utility metal box
     'monument sign', // metal sign fabrication
+    'fence', 'fencing', // TCB does fencing/gate work
   ];
 
   return metalFabIndicators.some(indicator => text.includes(indicator));

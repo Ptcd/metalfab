@@ -27,6 +27,8 @@ const FETCHERS = {
   'mke-county':    { script: 'fetch-mke-county.js',     headless: false, timeout: 30000 },
   'kenosha':       { script: 'fetch-kenosha.js',        headless: false, timeout: 30000 },
   'vendornet':     { script: 'fetch-vendornet.js',     headless: true,  timeout: 120000 },
+  'questcdn':      { script: 'fetch-questcdn.js',     headless: false, timeout: 30000 },
+  'wi-munis':      { script: 'fetch-wi-municipalities.js', headless: false, timeout: 60000 },
 };
 
 const POST_SCRIPTS = [

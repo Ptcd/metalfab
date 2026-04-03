@@ -11,8 +11,9 @@ export default async function DashboardPage({
 }) {
   const supabase = createServiceClient();
 
-  // Default to "new" status so the dashboard shows biddable opportunities first
-  const activeStatus = searchParams.status ?? "new";
+  // Default to "reviewing" — these are the vetted opportunities ready for human decision
+  // "new" will be empty after each morning auto-triage run
+  const activeStatus = searchParams.status ?? "reviewing";
 
   let query = supabase
     .from("opportunities")

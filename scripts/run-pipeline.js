@@ -9,7 +9,7 @@
  *
  * Usage: node scripts/run-pipeline.js [--skip-headless] [--only=source1,source2]
  *
- * Sources: samgov, bidnet, demandstar, racine-county, milwaukee, mke-county, kenosha, vendornet
+ * Sources: samgov, bidnet, demandstar, racine-county, milwaukee, mke-county, kenosha, vendornet, questcdn, wi-munis, bonfire
  */
 
 const { execSync, spawn } = require('child_process');
@@ -29,6 +29,7 @@ const FETCHERS = {
   'vendornet':     { script: 'fetch-vendornet.js',     headless: true,  timeout: 120000 },
   'questcdn':      { script: 'fetch-questcdn.js',     headless: false, timeout: 30000 },
   'wi-munis':      { script: 'fetch-wi-municipalities.js', headless: false, timeout: 60000 },
+  'bonfire':       { script: 'fetch-bonfire.js',          headless: true,  timeout: 120000 },
 };
 
 const POST_SCRIPTS = [

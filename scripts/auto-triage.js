@@ -304,6 +304,36 @@ function isDefinitelyNotMetalFab(title, desc) {
     'international terminal', 'terminal redevelopment',
     'loading bridge', 'passenger loading',
     'dhhs-pos', 'dhhs-psa', 'dhhs-bhs', 'dhhs new building',
+    // Round 8 — CivicEngage nav junk & VendorNet cleanup
+    'create a website account', 'download adobe', 'employee wellness',
+    'workforce development', 'agendas & minutes', 'agendas &',
+    'birth, death', 'land info maps', 'aging and disability',
+    'facilities rental', 'lasata senior', 'citizen engagement',
+    'calendarfind', 'how do i', 'pay online', 'report a concern',
+    'mapsexplore', 'register to vote', 'tax bill', 'traffic accident',
+    'street light outage', 'building permit', 'copyright notice',
+    'show me', 'open bids', 'sorted by', 'show closed',
+    'status:\t', 'closes:\n', // CivicEngage UI fragments
+    'there are no open', 'no open bid',
+    // VendorNet non-metal-fab
+    'warning siren', 'siren inspection',
+    'power washing', 'pressure wash',
+    'hematology', 'whole blood chemistry',
+    'battery replacement', 'concourse battery',
+    'homogenizer', 'dairy',
+    'underground facilities rehabilitation', // water/sewer utility
+    'lead service line', 'lsl replacement',
+    'glass window and door', 'glass window',
+    'signage and banner', 'interior & exterior signage',
+    // Generic non-metal-fab patterns
+    'paving program', 'street improvement',
+    'pump station improvement', 'pump station',
+    'bridge sealing', 'bridge rehabilitation',
+    'fire station hvac', 'hvac improvement',
+    'manhole replacement', 'sewer main repair',
+    'water main', 'area water',
+    'park master plan', 'park design',
+    'engineering & park',
   ];
 
   return notMetalFab.some(pattern => text.includes(pattern));
@@ -349,6 +379,22 @@ function isGateAttendant(title) {
 function isExpired(deadline) {
   if (!deadline) return false;
   return new Date(deadline) < new Date();
+}
+
+// Check if title is just a bid number with no meaningful description
+function isOpaqueBidNumber(title) {
+  const t = title.trim();
+  // VendorNet format: "2026-UWMSN-01287-RFB", "437004-M26-0002692", "15027-0-2026-BG"
+  if (/^\d{4}-[A-Z]{2,}[-\d]+(-[A-Z]+)?$/i.test(t)) return true;
+  // Numeric code: "15027-0-2026-BG", "437004-M26-0002692"
+  if (/^[\d]+-[\d]+-[\d]+-[A-Z]+$/i.test(t)) return true;
+  if (/^\d{6}-[A-Z]\d{2}-\d+$/i.test(t)) return true;
+  // Generic short code: "JT-RFP-2026-2", "RFP #202601"
+  if (/^[A-Z]{2,4}-?(?:RFP|RFB|BID)-?\d{4}-\d+$/i.test(t)) return true;
+  if (/^RFP\s*#\d+$/i.test(t)) return true;
+  // WS/WA/WP Milwaukee County codes without description
+  if (/^W[A-Z]\d{4,}:?\s*$/.test(t)) return true;
+  return false;
 }
 
 // Check if this looks like a campground/park services job
@@ -463,6 +509,8 @@ async function run() {
       reason = 'Auto-passed: Overseas location';
     } else if (isParkServices(title, desc)) {
       reason = 'Auto-passed: Park/campground services';
+    } else if (isOpaqueBidNumber(title)) {
+      reason = 'Auto-passed: Opaque bid number with no description';
     } else if (isDefinitelyNotMetalFab(title, desc)) {
       reason = 'Auto-passed: Not metal fabrication work';
     }

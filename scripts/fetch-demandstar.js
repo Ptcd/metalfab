@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * fetch-demandstar.js - Scrapes bid opportunities from DemandStar
- * Headless Puppeteer, logs in, scrapes bids page, imports to Supabase
+ * fetch-demandstar.js - Scrapes bid opportunities from DemandStar/OpenBids
+ * Headless Puppeteer, logs in, paginates through numbered pages,
+ * extracts state from location text, filters to upper midwest, imports to Supabase.
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env.local') });
@@ -14,8 +15,11 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const DS_EMAIL = process.env.DEMANDSTAR_EMAIL;
 const DS_PASSWORD = process.env.DEMANDSTAR_PASSWORD;
-const MAX_PAGES = parseInt(process.env.DEMANDSTAR_MAX_PAGES || '5');
+const MAX_PAGES = parseInt(process.env.DEMANDSTAR_MAX_PAGES || '50');
 const DEBUG = process.argv.includes('--debug');
+
+// Upper midwest states to keep
+const ALLOWED_STATES = new Set(['WI', 'IL', 'IN', 'MI', 'MN', 'IA']);
 
 if (!DS_EMAIL || !DS_PASSWORD) {
   console.error('Missing DEMANDSTAR_EMAIL or DEMANDSTAR_PASSWORD in .env.local');
@@ -45,11 +49,170 @@ async function supabaseRequest(method, endpoint, body = null) {
 function debugScreenshot(page, name) {
   if (!DEBUG) return Promise.resolve();
   const path = require('path').join(__dirname, `debug-ds-${name}.png`);
-  return page.screenshot({ path });
+  console.log(`  [DEBUG] Screenshot: ${path}`);
+  return page.screenshot({ path, fullPage: true });
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+/**
+ * Extract bids from the current page.
+ * Each bid card on DemandStar/OpenBids shows:
+ *   Title (link to /bids/{id}/details)
+ *   Agency Name, City, County, ST - DemandStar Extended Network
+ *   ID: XXX
+ *   Broadcast: date   Due: date   Planholders: N   Watchers: N
+ *
+ * We use page.evaluate to get structured data from each card.
+ */
+async function extractBidsFromPage(page) {
+  return page.evaluate(() => {
+    const results = [];
+    const bidLinks = document.querySelectorAll('a[href*="/bids/"][href*="/details"]');
+
+    bidLinks.forEach(link => {
+      const url = link.href;
+      const title = link.textContent?.trim();
+
+      const idMatch = url.match(/\/bids\/(\d+)\//);
+      const bidId = idMatch ? idMatch[1] : null;
+      if (!title || title.length <= 5 || !bidId) return;
+
+      // Find the card container: walk up parents but stop before we
+      // reach a container that holds multiple bid cards.
+      let card = link.parentElement;
+      for (let i = 0; i < 10; i++) {
+        if (!card || !card.parentElement) break;
+        const parent = card.parentElement;
+        const linksInParent = parent.querySelectorAll('a[href*="/bids/"][href*="/details"]');
+        if (linksInParent.length > 1) break;
+        card = parent;
+      }
+
+      // Get the card's inner text (includes agency, location, dates)
+      const text = card?.innerText?.trim() || '';
+
+      // Extract the location line specifically. It typically contains:
+      // "Agency, City, County, ST - DemandStar Extended Network"
+      // or just "Agency - DemandStar Extended Network"
+      // The state code is right before " - DemandStar" or "- Demand"
+      let state = null;
+      let location = null;
+
+      // Look for ", ST - " pattern (state before dash)
+      const stateBeforeDash = text.match(/,\s*([A-Z]{2})\s+-\s/);
+      if (stateBeforeDash && stateBeforeDash[1] !== 'ID') {
+        state = stateBeforeDash[1];
+      }
+
+      // If that didn't work, try "County, ST" pattern
+      if (!state) {
+        const countyState = text.match(/County,\s*([A-Z]{2})\b/);
+        if (countyState && countyState[1] !== 'ID') {
+          state = countyState[1];
+        }
+      }
+
+      // Extract location: "City, County, ST" (on a single line)
+      // Split by lines first to avoid matching across line breaks
+      const textLines = text.split('\n');
+      for (const line of textLines) {
+        const locMatch = line.match(/([\w\s.'-]+County),\s*([A-Z]{2})\b/);
+        if (locMatch && locMatch[2] !== 'ID') {
+          location = `${locMatch[1].trim()}, ${locMatch[2]}`;
+          break;
+        }
+      }
+
+      // Extract dates
+      let dueDate = null;
+      const dueMatch = text.match(/Due[:\s]*([A-Za-z]+\s+\d{1,2},?\s+\d{4})/i);
+      if (dueMatch) dueDate = dueMatch[1];
+
+      let broadcastDate = null;
+      const bcastMatch = text.match(/Broadcast[:\s]*([A-Za-z]+\s+\d{1,2},?\s+\d{4})/i);
+      if (bcastMatch) broadcastDate = bcastMatch[1];
+
+      // Extract agency: typically the first text line after the title
+      // It's often the line containing the organization name before location details
+      let agency = null;
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+      for (const line of lines) {
+        if (line === title) continue;
+        if (line.startsWith('ID:') || line.startsWith('Broadcast') || line.startsWith('Due')) continue;
+        if (/^\d+$/.test(line)) continue;
+        if (line.length > 5) {
+          // This is likely the agency/location line
+          agency = line.split(' - ')[0].trim(); // Remove "- DemandStar Extended Network"
+          if (agency.length > 200) agency = agency.substring(0, 200);
+          break;
+        }
+      }
+
+      results.push({
+        title, url, bidId, state, location, dueDate, broadcastDate, agency,
+        rawText: text.substring(0, 1200)
+      });
+    });
+
+    return results;
+  });
+}
+
+/**
+ * Click to go to the next page using numbered pagination.
+ * The pagination shows: 1, 2, 3, 4, 5, 6, 7, ...
+ */
+async function clickPageNumber(page, targetNum) {
+  // Use the approach from the working version: find all clickable elements
+  // and match by text content + pagination context
+  return page.evaluate((num) => {
+    const numStr = String(num);
+
+    // Strategy 1: Find pagination links/buttons by number
+    const allClickable = Array.from(document.querySelectorAll('a, button'));
+    for (const el of allClickable) {
+      if (el.textContent.trim() === numStr) {
+        // Verify it's in a pagination context by checking siblings
+        const parent = el.parentElement;
+        if (!parent) continue;
+        const siblings = Array.from(parent.parentElement?.children || parent.children || []);
+        const numberSiblings = siblings.filter(s => {
+          const t = s.textContent.trim();
+          return /^\d+$/.test(t) || t === '>' || t === '<' || t === '>>' || t === '<<'
+              || t === '\u203A' || t === '\u2039' || t === '\u00BB' || t === '\u00AB';
+        });
+        if (numberSiblings.length >= 3) {
+          el.click();
+          return true;
+        }
+      }
+    }
+
+    // Strategy 2: Find list items with the page number
+    const listItems = Array.from(document.querySelectorAll('li'));
+    for (const li of listItems) {
+      if (li.textContent.trim() === numStr) {
+        const link = li.querySelector('a, button') || li;
+        const ul = li.parentElement;
+        if (ul) {
+          const siblingNums = Array.from(ul.children).filter(c => /^\d+$/.test(c.textContent.trim()));
+          if (siblingNums.length >= 3) {
+            link.click();
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }, targetNum);
 }
 
 async function scrape() {
-  console.log('🚀 Launching headless browser...');
+  console.log('Launching headless browser...');
   const browser = await puppeteer.launch({
     headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -61,7 +224,7 @@ async function scrape() {
 
   try {
     // Login
-    console.log('🔑 Logging into DemandStar...');
+    console.log('Logging into DemandStar...');
     await page.goto('https://www.demandstar.com/app/login', { waitUntil: 'networkidle2', timeout: 30000 });
     await page.waitForSelector('#userName', { timeout: 10000 });
     await page.type('#userName', DS_EMAIL, { delay: 30 });
@@ -71,178 +234,157 @@ async function scrape() {
       page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {}),
       page.click('button[type="submit"]'),
     ]);
-    await new Promise(r => setTimeout(r, 3000));
-
+    await sleep(3000);
     console.log(`  After login: ${page.url()}`);
     await debugScreenshot(page, 'after-login');
 
     // Navigate to bids
-    console.log('📋 Loading bids page...');
+    console.log('Loading bids page...');
     await page.goto('https://www.demandstar.com/app/suppliers/bids', { waitUntil: 'networkidle2', timeout: 30000 });
-    await new Promise(r => setTimeout(r, 5000));
-
+    await sleep(5000);
     await debugScreenshot(page, 'bids-page');
 
-    // Extract bids — DemandStar uses card layout, not tables
-    let allBids = [];
-    let totalImported = 0;
-    let totalSkipped = 0;
+    // Get total count
+    const totalText = await page.evaluate(() => {
+      const text = document.body.innerText;
+      const m = text.match(/(\d+)\s*-\s*\d+\s+of\s+(\d+)/);
+      return m ? { showing: m[0], total: parseInt(m[2]) } : null;
+    });
+    if (totalText) {
+      console.log(`  ${totalText.showing} (${totalText.total} total bids)`);
+    }
 
-    for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
-      console.log(`📊 Extracting page ${pageNum}...`);
+    // Paginate through all pages extracting bids
+    const allBids = new Map();
+    let pageNum = 1;
+    let noNewCount = 0;
 
-      const bids = await page.evaluate(() => {
-        const results = [];
-        // Find all bid links: /app/suppliers/bids/{id}/details
-        const bidLinks = document.querySelectorAll('a[href*="/bids/"][href*="/details"]');
-
-        bidLinks.forEach(link => {
-          const card = link.closest('div') || link.parentElement?.parentElement;
-          const text = card?.textContent?.trim() || '';
-          const title = link.textContent?.trim();
-          const url = link.href;
-
-          // Extract bid ID from URL
-          const idMatch = url.match(/\/bids\/(\d+)\//);
-          const bidId = idMatch ? idMatch[1] : null;
-
-          // Parse due date: look for "Due: Apr 10, 2026" or similar
-          const dateMatch = text.match(/Due[:\s]+(\w+ \d{1,2},?\s*\d{4})/i);
-          const dueDate = dateMatch ? dateMatch[1] : null;
-
-          // Parse broadcast date
-          const broadcastMatch = text.match(/Broadcast[:\s]+(\w+ \d{1,2},?\s*\d{4})/i);
-
-          // Parse location: "City, County, ST" pattern
-          const locMatch = text.match(/,\s*(\w[\w\s]+?),\s*([A-Z]{2})\b/);
-          const location = locMatch ? `${locMatch[1].trim()}, ${locMatch[2]}` : null;
-          const state = locMatch ? locMatch[2] : null;
-
-          // Parse agency
-          const agencyMatch = text.match(/Active\s+(.*?)(?:,\s*\w+,\s*\w+\s*County)/i);
-          const agency = agencyMatch ? agencyMatch[1].trim() : null;
-
-          // Parse bid ID/identifier
-          const bidIdMatch = text.match(/ID:\s*([^\n]+)/);
-          const bidIdentifier = bidIdMatch ? bidIdMatch[1].trim() : null;
-
-          if (title && title.length > 5 && bidId) {
-            results.push({
-              title,
-              url,
-              bidId,
-              dueDate,
-              broadcastDate: broadcastMatch ? broadcastMatch[1] : null,
-              location,
-              state,
-              agency: agency || text.match(/Active\s+(.*?)ID:/s)?.[1]?.trim() || null,
-              bidIdentifier,
-              rawText: text.substring(0, 500)
-            });
-          }
-        });
-
-        return results;
-      });
-
-      console.log(`  Found ${bids.length} bids on page ${pageNum}`);
-      if (bids.length === 0) break;
-
-      // Process and import
-      let pageImported = 0;
-      let pageSkipped = 0;
+    while (pageNum <= MAX_PAGES) {
+      const bids = await extractBidsFromPage(page);
+      let newOnPage = 0;
 
       for (const bid of bids) {
-        // Parse due date to ISO format
-        let dueDate = null;
-        if (bid.dueDate) {
-          try {
-            const d = new Date(bid.dueDate);
-            if (!isNaN(d)) dueDate = d.toISOString().split('T')[0];
-          } catch (e) {}
-        }
-
-        let postedDate = null;
-        if (bid.broadcastDate) {
-          try {
-            const d = new Date(bid.broadcastDate);
-            if (!isNaN(d)) postedDate = d.toISOString().split('T')[0];
-          } catch (e) {}
-        }
-
-        const noticeId = `DSTAR-${bid.bidId}`;
-
-        try {
-          await supabaseRequest('POST', 'opportunities', {
-            sam_notice_id: noticeId,
-            title: bid.title,
-            source: 'demandstar',
-            status: 'new',
-            source_url: bid.url,
-            agency: bid.agency || 'DemandStar',
-            response_deadline: dueDate,
-            posted_date: postedDate,
-            place_of_performance: bid.location || bid.state,
-            raw_data: JSON.stringify({ ...bid, scraped_at: new Date().toISOString() }),
-          });
-          pageImported++;
-        } catch (e) {
-          if (e.message.includes('duplicate') || e.message.includes('conflict') || e.message.includes('23505')) {
-            pageSkipped++;
-          } else {
-            console.error(`  Error: "${bid.title}": ${e.message}`);
-          }
+        if (!allBids.has(bid.bidId)) {
+          allBids.set(bid.bidId, bid);
+          newOnPage++;
         }
       }
 
-      totalImported += pageImported;
-      totalSkipped += pageSkipped;
-      allBids = allBids.concat(bids);
-      console.log(`  Page ${pageNum}: imported ${pageImported}, skipped ${pageSkipped}`);
+      console.log(`  Page ${pageNum}: ${bids.length} bids (${newOnPage} new), total unique: ${allBids.size}`);
 
-      // Scroll down to load more (DemandStar may use infinite scroll)
-      const prevCount = allBids.length;
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await new Promise(r => setTimeout(r, 3000));
-
-      // Check if new content loaded
-      const newBidCount = await page.evaluate(() => {
-        return document.querySelectorAll('a[href*="/bids/"][href*="/details"]').length;
-      });
-
-      if (newBidCount <= prevCount) {
-        // Try clicking a "next" or "load more" button
-        const hasMore = await page.evaluate(() => {
-          const btns = Array.from(document.querySelectorAll('button, a'));
-          const nextBtn = btns.find(b => {
-            const t = b.textContent?.trim().toLowerCase();
-            return t === 'next' || t === 'load more' || t === '>' || t === '›';
-          });
-          if (nextBtn) { nextBtn.click(); return true; }
-          return false;
-        });
-
-        if (!hasMore) {
-          console.log('  No more pages.');
+      if (bids.length === 0) break;
+      if (newOnPage === 0) {
+        noNewCount++;
+        if (noNewCount >= 2) {
+          console.log('  No new bids for 2 consecutive pages, stopping.');
           break;
         }
-        await new Promise(r => setTimeout(r, 3000));
+      } else {
+        noNewCount = 0;
+      }
+
+      // Click next page
+      pageNum++;
+      const clicked = await clickPageNumber(page, pageNum);
+      if (!clicked) {
+        // Try "Next" or ">" button as fallback
+        const nextClicked = await page.evaluate(() => {
+          const els = Array.from(document.querySelectorAll('a, button'));
+          const next = els.find(e => {
+            const t = e.textContent.trim();
+            const aria = e.getAttribute('aria-label') || '';
+            return t === '>' || t === '>>' || t === '\u203A' || t === '\u00BB'
+                || t === 'Next' || aria.toLowerCase().includes('next');
+          });
+          if (next && !next.disabled) {
+            next.click();
+            return true;
+          }
+          return false;
+        });
+        if (!nextClicked) {
+          console.log('  No more pages available.');
+          break;
+        }
+      }
+
+      await sleep(3000);
+    }
+
+    await debugScreenshot(page, 'final');
+    console.log(`\nTotal unique bids extracted: ${allBids.size}`);
+
+    // Filter to target states and import
+    let totalImported = 0;
+    let totalSkipped = 0;
+    let totalFiltered = 0;
+    const importedBids = [];
+
+    for (const [bidId, bid] of allBids) {
+      const state = bid.state;
+
+      // Filter by state
+      if (!state || !ALLOWED_STATES.has(state)) {
+        totalFiltered++;
+        if (DEBUG && state) console.log(`  [FILTERED] "${bid.title}" - ${state}`);
+        else if (DEBUG) console.log(`  [FILTERED-NO-STATE] "${bid.title}"`);
+        continue;
+      }
+
+      // Parse dates to ISO
+      let dueDate = null;
+      if (bid.dueDate) {
+        try {
+          const d = new Date(bid.dueDate);
+          if (!isNaN(d)) dueDate = d.toISOString().split('T')[0];
+        } catch (e) {}
+      }
+
+      let postedDate = null;
+      if (bid.broadcastDate) {
+        try {
+          const d = new Date(bid.broadcastDate);
+          if (!isNaN(d)) postedDate = d.toISOString().split('T')[0];
+        } catch (e) {}
+      }
+
+      const noticeId = `DSTAR-${bidId}`;
+
+      try {
+        await supabaseRequest('POST', 'opportunities', {
+          sam_notice_id: noticeId,
+          title: bid.title,
+          source: 'demandstar',
+          status: 'new',
+          source_url: bid.url,
+          agency: bid.agency || 'DemandStar',
+          response_deadline: dueDate,
+          posted_date: postedDate,
+          place_of_performance: bid.location || state,
+          raw_data: JSON.stringify({ ...bid, scraped_at: new Date().toISOString() }),
+        });
+        totalImported++;
+        importedBids.push({ title: bid.title, state, location: bid.location, dueDate });
+        console.log(`  [IMPORTED] ${noticeId}: "${bid.title}" (${state}, ${bid.location || ''})`);
+      } catch (e) {
+        if (e.message.includes('duplicate') || e.message.includes('conflict') || e.message.includes('23505')) {
+          totalSkipped++;
+        } else {
+          console.error(`  [ERROR] "${bid.title}": ${e.message}`);
+        }
       }
     }
 
-    console.log(`\n💾 Total: imported ${totalImported}, skipped ${totalSkipped} from ${allBids.length} bids`);
+    console.log(`\nResults: ${allBids.size} found, ${totalFiltered} filtered (wrong/no state), ${totalImported} imported, ${totalSkipped} dupes`);
 
-    // Output summary
     const summary = {
       source: 'demandstar',
       timestamp: new Date().toISOString(),
-      bidsFound: allBids.length,
+      bidsFound: allBids.size,
+      bidsFiltered: totalFiltered,
       imported: totalImported,
       skipped: totalSkipped,
-      bids: allBids.map(b => ({
-        title: b.title, url: b.url, dueDate: b.dueDate,
-        location: b.location, state: b.state
-      }))
+      bids: importedBids
     };
 
     console.log('\n__DEMANDSTAR_JSON__');
@@ -253,7 +395,8 @@ async function scrape() {
     return summary;
 
   } catch (err) {
-    console.error('❌ Error:', err.message);
+    console.error('Error:', err.message);
+    if (DEBUG) console.error(err.stack);
     await debugScreenshot(page, 'error');
     await browser.close();
     process.exit(1);
@@ -261,7 +404,7 @@ async function scrape() {
 }
 
 scrape().then(result => {
-  console.log(`\n✅ DemandStar fetch complete. Found ${result.bidsFound} opportunities (${result.imported} new, ${result.skipped} dupes).`);
+  console.log(`\nDemandStar fetch complete. Found ${result.bidsFound} opportunities, filtered ${result.bidsFiltered}, ${result.imported} new, ${result.skipped} dupes.`);
 }).catch(err => {
   console.error('Fatal error:', err);
   process.exit(1);

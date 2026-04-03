@@ -499,7 +499,506 @@ International Trade Administration provides trade leads including foreign govern
 
 ---
 
-## IMPLEMENTATION PRIORITY ORDER
+## MIDWEST STATE & LOCAL PROCUREMENT SOURCES (Racine, WI Focus Area)
+
+### Research Date: April 2, 2026
+
+The following sources cover the 6-state region most relevant to a metal fabrication shop in Racine, WI: Wisconsin, Illinois, Indiana, Michigan, Iowa, and Minnesota. Plus county/city level portals and private construction lead services.
+
+---
+
+### 12. Wisconsin VendorNet / eSupplier Portal
+
+**Status: NO API. Email alerts only. FREE.**
+
+- **URL:** https://vendornet.wi.gov (legacy, still shows bids)
+- **New Portal:** https://esupplier.wi.gov (replaced VendorNet for account management)
+- **Bids Page:** https://vendornet.wi.gov/bids.aspx
+- **NIGP Codes Page:** https://vendornet.wi.gov/NIGPCodes.aspx
+- **Free?** YES - completely free to register and receive alerts
+- **API?** NO
+- **RSS Feed?** NO
+- **Email Alerts?** YES - register NIGP commodity codes and receive automatic email notifications when matching solicitations are posted
+- **Scrapeable?** YES - the bids page at vendornet.wi.gov/bids.aspx is a web-based list that could be scraped
+
+**How it works:**
+1. Register at esupplier.wi.gov (free)
+2. Add NIGP codes matching metal fabrication (see codes below)
+3. Receive email alerts when state agencies or UW System campuses post matching solicitations
+4. All sealed bids and RFPs from Wisconsin state agencies post here
+
+**Relevant NIGP Codes for Metal Fab:**
+- 557 (Metal, Bars, Plates, Rods, Sheets, Strips, etc.)
+- 560 (Castings & Forgings)
+- 595 (Pipe, Tubing, and Fittings)
+- 715 (Building Construction Services, New)
+- 910 (Welding Equipment and Supplies)
+- 912 (Building Components, Prefabricated)
+- 914 (Construction Services, General)
+- 928 (Metal Work, Fabrication and Repairs)
+
+**Covers:** All Wisconsin state agencies, UW System campuses. Does NOT cover counties/cities (they use their own portals).
+
+**Automation approach:** Build an email parser for VendorNet notification emails, OR scrape vendornet.wi.gov/bids.aspx periodically.
+
+---
+
+### 13. Illinois BidBuy
+
+**Status: NO API. Email alerts only. FREE.**
+
+- **URL:** https://www.bidbuy.illinois.gov/bso/
+- **Public Bids:** https://www.bidbuy.illinois.gov/bso/external/publicBids.sdo
+- **Vendor Manual:** https://pathway2procurement.illinois.gov/content/dam/soi/en/web/cpo-pathway-to-procurement/documents/bidbuy-documents/bidbuy-vendor-manual.pdf
+- **Free?** YES - free to register
+- **API?** NO
+- **RSS Feed?** NO
+- **Email Alerts?** YES - register commodity codes to receive bid notifications
+- **Scrapeable?** MAYBE - the public bids page could be scraped but uses server-side rendering (JSF/Java)
+- **Help Desk:** il.bidbuy@illinois.gov / 866-455-2897
+
+**How it works:**
+1. Register as a vendor on BidBuy
+2. Select commodity codes for metal fabrication
+3. Receive email notifications for matching solicitations
+4. Both goods/services and Illinois Tollway solicitations post here
+
+**Covers:** All Illinois state agencies, Illinois Tollway (goods/services over small purchase threshold). Does NOT cover local governments.
+
+**Automation approach:** Email parser for BidBuy notifications. Scraping the public bids page is possible but the JSF framework makes it harder than static HTML.
+
+---
+
+### 14. Michigan SIGMA Vendor Self-Service (VSS)
+
+**Status: NO API. Email alerts only. FREE.**
+
+- **URL:** https://sigma.michigan.gov
+- **VSS Portal:** https://sigma.michigan.gov/PRDVSS1X1/Advantage4
+- **Info Page:** https://www.michigan.gov/budget/budget-offices/sigma/doing-business-with-the-state
+- **Free?** YES - free to register
+- **API?** NO
+- **RSS Feed?** NO
+- **Email Alerts?** YES - add commodity codes to receive email notifications for matching solicitations and grants
+- **Scrapeable?** DIFFICULT - behind login/session management
+- **Help Desk:** SIGMA-Vendor@michigan.gov / 517-284-0540
+
+**How it works:**
+1. Register for a SIGMA VSS account (free)
+2. Add commodity codes for metal fabrication
+3. Receive email notifications for matching solicitations
+4. ALL Michigan state bid opportunities post here
+
+**Covers:** All Michigan state agencies. Does NOT cover local governments.
+
+**Automation approach:** Email parser for SIGMA notification emails. Web scraping is difficult due to session-based access.
+
+---
+
+### 15. Indiana IDOA Procurement
+
+**Status: NO API. Email alerts only. FREE.**
+
+- **URL:** https://www.in.gov/idoa/procurement/
+- **Supplier Portal:** https://in.accessgov.com/idoa
+- **Bidder Registration:** https://www.in.gov/idoa/procurement/supplier-resource-center/requirements-to-do-business-with-the-state/bidder-profile-registration/
+- **Free?** YES
+- **API?** NO
+- **RSS Feed?** NO
+- **Email Alerts?** YES - via bidder profile commodity code registration
+- **Scrapeable?** POSSIBLE - the public procurement page lists current opportunities
+
+**Covers:** Indiana state agencies.
+
+**Automation approach:** Email parser for notification emails. Check whether the public solicitation listing can be scraped.
+
+---
+
+### 16. Iowa DAS / IMPACS (JAGGAER Platform)
+
+**Status: NO PUBLIC API. Email alerts only. FREE.**
+
+- **URL:** https://das.iowa.gov/vendors/bidding-opportunities
+- **Bid Portal:** https://bidopportunities.iowa.gov/
+- **IMPACS Vendor Portal:** https://solutions.sciquest.com/apps/Router/SupplierLogin?CustOrg=DASIowa
+- **Free?** YES
+- **API?** NO public API. JAGGAER has enterprise APIs but they are not exposed to vendors.
+- **RSS Feed?** NO
+- **Email Alerts?** YES - register IMPACS commodity codes to receive bid notifications via email
+- **Scrapeable?** DIFFICULT - JAGGAER/SciQuest platform is session-heavy
+
+**How it works:**
+1. Create vendor account in IMPACS
+2. Select commodity codes for metal fabrication
+3. Receive email notifications for matching solicitations
+
+**Covers:** Iowa state agencies (DAS and others).
+
+**Automation approach:** Email parser only. JAGGAER platforms are difficult to scrape.
+
+---
+
+### 17. Minnesota Office of State Procurement / SWIFT
+
+**Status: NO API. Email alerts only. FREE.**
+
+- **URL:** https://mn.gov/admin/osp/vendors/solicitations-and-contract-opportunities/
+- **Supplier Portal:** https://mn.gov/admin/osp/quicklinks/secure-portal/index.jsp
+- **Contact:** OSPHelp.Line@state.mn.us / 651-296-2600
+- **Free?** YES
+- **API?** NO
+- **RSS Feed?** NO
+- **Email Alerts?** YES - register commodity categories in the Supplier Portal to receive email notifications
+- **Scrapeable?** POSSIBLE - the solicitations page lists opportunities publicly
+
+**How it works:**
+1. Register through the state's Supplier Portal (free)
+2. Select commodity categories during registration
+3. Receive email notifications matching your categories
+4. Vendor info enters SWIFT (Statewide Integrated Financial Tools) system
+
+**Covers:** Minnesota state agencies.
+
+**Automation approach:** Email parser for notification emails. Check if the public solicitations page can be scraped.
+
+---
+
+### 18. BidNet Direct (Municipal/County Aggregator)
+
+**Status: NO OFFICIAL API. Third-party scraper available. PAID for full access.**
+
+- **URL:** https://www.bidnetdirect.com/
+- **Open Solicitations:** https://www.bidnetdirect.com/solicitations/open-bids
+- **Wisconsin Bids:** https://www.bidnetdirect.com/wisconsin
+- **Free?** PARTIALLY - can browse some bids free; full access requires paid subscription
+- **API?** NO official API
+- **RSS Feed?** NO
+- **Email Alerts?** YES - with subscription
+- **Third-Party Scraper:** Apify has a BidNetDirect Government Bids Scraper at https://apify.com/parseforge/governmentbids-scraper/api
+
+**What it aggregates:** Municipal, county, school district, and special district bids from thousands of local government agencies. This is the single best source for LOCAL government bids in the Midwest.
+
+**Apify Scraper Details:**
+- Can scrape by keywords, status, categories, locations, publish date, agency type
+- Structured JSON output
+- Apify free tier available (limited); paid plans start ~$49/month
+- Could automate monitoring of Wisconsin/Illinois/Midwest municipal bids
+
+**Automation approach:** Use the Apify BidNet scraper to periodically pull bids matching metal fabrication keywords for WI, IL, IN, MI, IA, MN. This is the most viable path to automating local government bid monitoring.
+
+---
+
+### 19. Wisconsin DOT (WisDOT) Highway Construction
+
+**Status: NO API. Uses BidExpress/BidX. PAID for bidding, FREE to view.**
+
+- **HCCI Page:** https://wisconsindot.gov/Pages/doing-bus/contractors/hcci/default.aspx
+- **BidX Portal:** https://ui.bidx.com/WIDOT/lettings
+- **Legacy BidX:** https://www.bidx.com/wi/main
+- **Free?** FREE to view bid results and letting schedules. PAID ($30-50/month) to submit bids electronically.
+- **API?** NO
+- **RSS Feed?** NO
+- **Schedule:** Lettings occur on the 2nd Tuesday of each month. Projects advertised ~5 weeks before letting.
+
+**Steel/Metal Fab Contracts:**
+WisDOT does NOT post steel/metal fabrication contracts separately. They are included as line items within larger highway construction projects. Metal fab items in WisDOT lettings include: bridge rail, guard rail, structural steel, sign structures, light poles, median barriers.
+
+**Note:** Starting April 14, 2026, WisDOT is moving to a new streamlined bidding system through BidX.com.
+
+**Automation approach:** The BidX lettings page at ui.bidx.com/WIDOT/lettings could potentially be scraped for upcoming lettings and bid items. This would identify projects with steel/metal fab line items before letting.
+
+---
+
+### 20. Illinois Tollway Procurement
+
+**Status: NO API. Uses BidBuy + separate plan room. FREE to register.**
+
+- **Goods/Services:** https://agency.illinoistollway.com/doing-business/goods-and-services
+- **Construction Bids:** https://agency.illinoistollway.com/doing-business/construction-engineering/bids-bulletins-awards
+- **Plan Room (Construction):** https://www.illinoistollwaybidding.com/
+- **Public Projects:** https://www.illinoistollwaybidding.com/projects/public
+- **Active Contracts:** https://agency.illinoistollway.com/active-contracts
+- **Free?** YES to register and view opportunities
+- **API?** NO
+- **RSS Feed?** NO
+- **Email Alerts?** YES - register commodity codes on BidBuy for goods/services; register on illinoistollwaybidding.com for construction
+
+**How it works:**
+- Goods/services under small purchase threshold: RFQ basis on BidBuy
+- Goods/services over threshold: IFB or RFP on BidBuy
+- Construction projects: Advertised through the Online Plan Room (illinoistollwaybidding.com)
+- Bid letting schedule updated every Friday
+
+**Value for Metal Fab:** Illinois Tollway has a massive capital program (Move Illinois program). Bridge steel, sign structures, guardrail, barriers, and misc metals are regular line items.
+
+**Automation approach:** Scrape the public projects page at illinoistollwaybidding.com/projects/public for new construction postings. Parse BidBuy notification emails for goods/services.
+
+---
+
+### 21. Cook County, IL - Open Data Portal (SOCRATA API)
+
+**Status: FREE API AVAILABLE via Socrata/SODA. Bids posted on Bonfire.**
+
+- **Open Data Portal:** https://datacatalog.cookcountyil.gov/
+- **Programmatic Access Guide:** https://datacatalog.cookcountyil.gov/stories/s/Programmatic-Access/xydy-d85m
+- **Bid Tabulations Dataset:** https://datacatalog.cookcountyil.gov/Finance-Administration/Procurement-Bid-Tabulations/32au-zaqn
+- **Awarded Contracts Dataset:** https://datacatalog.cookcountyil.gov/Finance-Administration/Procurement-Awarded-Contracts-Amendments/qh8j-6k63
+- **Intent to Execute Dataset:** https://datacatalog.cookcountyil.gov/Finance-Administration/Procurement-Intent-to-Execute/ag43-fvd7
+- **Bonfire Portal (Active Bids):** https://cookcounty.bonfirehub.com (registration required for alerts)
+- **Free?** YES - Open Data API is completely free
+- **API?** YES - Socrata Open Data API (SODA)
+- **Auth:** None required for public data; optional app token increases rate limit
+- **Rate Limits:** Reasonable; app token recommended for automation
+
+**API Query Examples:**
+```
+# Bid Tabulations - search for metal/steel
+https://datacatalog.cookcountyil.gov/resource/32au-zaqn.json?$q=steel+metal+fabrication&$limit=50
+
+# Awarded Contracts
+https://datacatalog.cookcountyil.gov/resource/qh8j-6k63.json?$q=steel&$limit=50
+
+# With SOQL filtering
+https://datacatalog.cookcountyil.gov/resource/32au-zaqn.json?$where=description LIKE '%steel%' OR description LIKE '%metal%'&$order=date_received DESC
+```
+
+**Limitation:** The Open Data portal shows bid tabulations and awarded contracts (historical/recent awards), NOT upcoming solicitations. For active/upcoming bids, you need Cook County's Bonfire portal (no API).
+
+**Automation approach:** Poll the Socrata API for new bid tabulations and awards. This gives intelligence on who's winning metal fab contracts in Cook County and at what prices. Combine with Bonfire email alerts for upcoming bids.
+
+---
+
+### 22. City of Chicago - Socrata Open Data + iSupplier
+
+**Status: FREE API for contract data. No API for active bids.**
+
+- **Data Portal:** https://data.cityofchicago.org/
+- **Contracts Dataset:** https://data.cityofchicago.org/Administration-Finance/Contracts/rsxa-ify5
+- **Developer Resources:** https://www.chicago.gov/city/en/narr/foia/sample_code0.html
+- **iSupplier Portal (Active Bids):** https://eprocurement.cityofchicago.org/
+- **Current Bids Page:** https://www.chicago.gov/city/en/depts/dps/isupplier/current-bids.html
+- **Free?** YES - Open Data is free; iSupplier registration is free
+- **API?** YES for contract/award data (Socrata SODA API). NO for active solicitations.
+- **Auth:** None required for public datasets
+
+**API Query Example:**
+```
+# Chicago contracts since 1993
+https://data.cityofchicago.org/resource/rsxa-ify5.json?$q=steel+fabrication&$limit=50&$order=start_date DESC
+```
+
+**Limitation:** Same as Cook County - the Socrata API shows awarded contracts (great for competitive intelligence), but active solicitations are only on iSupplier with no API.
+
+**Automation approach:** Poll Socrata for new metal fab contract awards. Register on iSupplier for email alerts on active bids.
+
+---
+
+### 23. Milwaukee County - Bonfire Portal
+
+**Status: NO API. Email alerts via Bonfire registration. FREE.**
+
+- **Bonfire Portal:** https://countymilwaukee.bonfirehub.com/portal/?tab=openOpportunities
+- **Procurement Page:** https://county.milwaukee.gov/EN/Administrative-Services/Procurement
+- **Also uses Bonfire:** Milwaukee County Transit (MCTS), Milwaukee Metropolitan Sewerage District (MMSD)
+- **Free?** YES to register and receive alerts
+- **API?** NO - Bonfire does not offer a public API
+- **Email Alerts?** YES - register on Bonfire to receive notifications for matching opportunities
+- **Scrapeable?** DIFFICULT - Bonfire is a SPA with dynamic loading
+
+**Related Bonfire Portals in the Area:**
+- City of Milwaukee: https://cityofmilwaukee.bonfirehub.com/portal
+- MCTS: https://ridemcts.bonfirehub.com/portal
+- MMSD: https://mmsd.bonfirehub.com/portal
+- Waukesha County: https://waukeshacounty.bonfirehub.com/portal
+
+**Automation approach:** Register on each Bonfire portal with metal fab categories. Parse notification emails. Bonfire cannot be easily scraped or accessed via API.
+
+---
+
+### 24. Racine County, WI - DemandStar/EUNA OpenBids
+
+**Status: NO API. Email alerts via DemandStar. PARTIALLY FREE.**
+
+- **County Procurement Page:** https://www.racinecounty.com/departments/finance/purchasing-rfps-and-bids
+- **DemandStar Page:** https://www.demandstar.com/app/agencies/wisconsin/racine-county/procurement-opportunities/34fdc694-9d20-40d6-9ac9-84e50b0c192d/
+- **City of Racine on DemandStar:** https://www.demandstar.com/app/agencies/wisconsin/city-of-racine-purchasing/procurement-opportunities/01dc3f5c-ed8d-466f-9fa8-3f31a8e08705/
+- **City of Racine Purchasing:** https://cityofracine.org/purchasing/
+- **Free?** PARTIALLY - browse some bids free on DemandStar; full access requires subscription
+- **API?** NO
+- **Email Alerts?** YES - with DemandStar registration
+- **Contact:** Duane McKinney, Procurement Agent, 262-636-3700, duane.mckinney@racinecounty.gov
+
+**WAPP Registration:** Register at DemandStar and select Wisconsin Association for Public Procurement (WAPP) as your Free Agency Registration to get basic free access.
+
+**Automation approach:** Register on DemandStar with WAPP free registration. Parse notification emails. Racine County also posts RFPs directly on racinecounty.com which could be scraped.
+
+---
+
+### 25. Kenosha County, WI
+
+**Status: NO API. Uses VendorNet + own website. FREE.**
+
+- **Purchasing Division:** https://www.kenoshacountywi.gov/109/Purchasing
+- **Free?** YES
+- **API?** NO
+- **Email Alerts?** YES - via VendorNet/eSupplier NIGP code registration
+- **Scrapeable?** YES - the purchasing page lists current bids
+
+**Automation approach:** Register on Wisconsin eSupplier with NIGP codes. Also periodically scrape the Kenosha County purchasing page.
+
+---
+
+## PRIVATE CONSTRUCTION LEAD SERVICES
+
+### 26. Dodge Construction Network (includes Blue Book Network)
+
+**Status: API AVAILABLE but PAID. Expensive.**
+
+- **URL:** https://www.construction.com/
+- **Products:** Dodge Construction Central, Blue Book Network
+- **Apps/Integrations:** https://www.construction.com/products/apps-integrations
+- **API Addendum:** https://www.construction.com/wp-content/uploads/2025/09/DCN_API-License_Addendum_20250812-FINAL.pdf
+- **Salesforce Integration:** Dodge PipeLine for Salesforce available on AppExchange
+- **Free?** NO
+- **Pricing:** Starts ~$6,000/year per seat for regional access; $12,000+/year for national. Enterprise: $40,000-$75,000/year. API access requires additional licensing.
+- **API?** YES - REST API available for subscribers. Allows downloading project leads into CRM/internal systems.
+- **Auth:** Subscription-based credentials
+
+**What you get:** Pre-construction project intelligence. Know about projects in planning/design before they go to bid. Identifies GCs, architects, owners. Tracks projects from planning through award.
+
+**Blue Book Network Note:** The Blue Book API at webapi.bluebook.net is specifically for repair/estimation orders, NOT for project lead data. Blue Book's project leads are accessed through the Dodge Construction Central platform.
+
+**Value for Metal Fab:** Highest-quality private construction lead data. Know about hospital expansions, school construction, highway projects, etc. in WI/IL/IN/MI before they bid. Expensive but high ROI if you close even one contract from a lead.
+
+**Automation approach:** If subscribed, use the Dodge API to pull project leads into your CRM pipeline automatically. Salesforce integration available out of the box.
+
+---
+
+### 27. ConstructConnect (formerly iSqFt)
+
+**Status: API for Enterprise only. PAID.**
+
+- **URL:** https://www.constructconnect.com/
+- **Pricing Page:** https://projects.constructconnect.com/pricing
+- **Free?** NO
+- **Pricing:** Starter: $129/month (month-to-month). Professional: $199/month (annual). Enterprise: custom pricing. API only available at Enterprise tier.
+- **API?** YES but only for ConstructConnect Enterprise customers
+- **RSS Feed?** NO
+- **Email Alerts?** YES with subscription
+
+**What you get:** Construction project leads, plan room access, bid management tools. iSqFt subcontractor networking features now integrated into ConstructConnect.
+
+**Note:** iSqFt was acquired by ConstructConnect in 2014 and the brand has been retired. Subcontractor networking features are now in ConstructConnect Insight.
+
+**Value for Metal Fab:** Good for receiving bid invitations from GCs. Less useful for finding public bids (use the free government portals instead). The $129/month Starter plan may be worth it for GC bid invitations alone.
+
+**Automation approach:** At Enterprise tier, API integration into CRM. At lower tiers, email alert parsing only.
+
+---
+
+### 28. PlanHub
+
+**Status: API AVAILABLE (paid). FREE tier for subcontractors.**
+
+- **URL:** https://planhub.com/
+- **API Page:** https://planhub.com/api/
+- **Subcontractor Pricing:** https://planhub.com/pricing-subcontractors/
+- **Free?** YES for basic subcontractor access (bid invitations, project plans, basic bidding tools)
+- **Paid Plans:** Premier starts at $1,199/year for 25-mile radius. Full coverage: $1,999-$4,369+/year.
+- **API?** YES - Projects API available. Provides project data, bidding GCs, market trends. Annual license, pricing varies by region/volume.
+- **Integration:** No integration fees, 3-5 day typical setup
+
+**What the API provides:**
+- Project data (IDs, names, types, bidding dates, primary contacts)
+- Contact information (IDs, names, emails, phone numbers)
+- Nationwide or state-specific coverage options
+
+**Value for Metal Fab:** Free tier covers ~30-40% of bids in a given market. PlanHub is strongest for GC-to-sub bid invitations on private commercial projects. The API could feed project leads into your CRM pipeline.
+
+**Automation approach:** Register for free subcontractor account. If ROI justifies it, get API access to pull leads into CRM automatically. Parse email alerts from the free tier in the meantime.
+
+---
+
+### 29. The Blue Book Building & Construction Network
+
+**Status: PAID subscription. NO useful API for project leads.**
+
+- **URL:** https://www.thebluebook.com/
+- **Now Part of:** Dodge Construction Network
+- **Find Projects:** https://www.thebluebook.com/products/bluesearchtechnology/find-projects.html
+- **Free?** NO - $150 to $800/month depending on features. Typically sold as 2-year contracts.
+- **API?** The webapi.bluebook.net API is for repair estimates, NOT project leads
+- **Email Alerts?** YES with subscription
+
+**Note:** Blue Book is now owned by Dodge Construction Network. Their project lead data overlaps significantly with Dodge Construction Central. If you subscribe to Dodge, you likely don't need a separate Blue Book subscription.
+
+---
+
+## SUMMARY: MIDWEST PROCUREMENT AUTOMATION MATRIX
+
+| Source | API? | RSS? | Email Alerts? | Scrapeable? | Free? | Coverage |
+|--------|------|------|---------------|-------------|-------|----------|
+| **WI VendorNet/eSupplier** | NO | NO | YES (NIGP codes) | YES | YES | WI state agencies |
+| **IL BidBuy** | NO | NO | YES (commodity) | MAYBE (JSF) | YES | IL state agencies + Tollway |
+| **MI SIGMA VSS** | NO | NO | YES (commodity) | DIFFICULT | YES | MI state agencies |
+| **IN IDOA** | NO | NO | YES (commodity) | POSSIBLE | YES | IN state agencies |
+| **IA IMPACS (JAGGAER)** | NO | NO | YES (commodity) | DIFFICULT | YES | IA state agencies |
+| **MN OSP/SWIFT** | NO | NO | YES (commodity) | POSSIBLE | YES | MN state agencies |
+| **BidNet Direct** | NO (Apify scraper) | NO | YES (paid) | YES (via Apify) | PARTIAL | Municipal/county nationwide |
+| **WisDOT BidX** | NO | NO | NO | POSSIBLE | VIEW free | WI highway construction |
+| **IL Tollway** | NO | NO | YES (BidBuy) | POSSIBLE | YES | IL Tollway projects |
+| **Cook County Open Data** | **YES (SODA)** | NO | YES (Bonfire) | N/A (has API) | **YES** | Cook County awards/bids |
+| **Chicago Open Data** | **YES (SODA)** | NO | YES (iSupplier) | N/A (has API) | **YES** | Chicago contract awards |
+| **Milwaukee County** | NO | NO | YES (Bonfire) | DIFFICULT | YES | Milwaukee County |
+| **Racine County** | NO | NO | YES (DemandStar) | YES (county site) | PARTIAL | Racine County |
+| **Kenosha County** | NO | NO | YES (VendorNet) | YES | YES | Kenosha County |
+| **Dodge/Blue Book** | **YES (paid)** | NO | YES (paid) | NO | NO ($6K+/yr) | National project leads |
+| **ConstructConnect** | YES (Enterprise) | NO | YES (paid) | NO | NO ($129+/mo) | National project leads |
+| **PlanHub** | **YES (paid)** | NO | YES (free tier) | NO | FREE basic | National GC-to-sub bids |
+
+---
+
+## REVISED IMPLEMENTATION PRIORITY ORDER (Midwest Focus)
+
+### Tier 1 - Build Now (Free APIs, Highest Value)
+1. **Cook County Open Data API (SODA)** - Free, real API, award intelligence for Cook County
+2. **Chicago Open Data API (SODA)** - Free, real API, contract award data since 1993
+3. **USASpending.gov API** - Already documented above
+4. **SAM.gov Contract Awards API** - Already documented above
+5. **Wisconsin VendorNet Scraper** - Free, scrapeable bids page, closest geography
+
+### Tier 2 - Build Soon (Free, Email Parsing + Scraping)
+6. **BidNet Direct via Apify Scraper** - Best single source for all Midwest municipal/county bids
+7. **WI eSupplier Email Parser** - Parse VendorNet notification emails automatically
+8. **IL BidBuy Email Parser** - Parse BidBuy notifications for IL state opportunities
+9. **Racine/Kenosha County Scrapers** - Scrape local county procurement pages
+10. **WisDOT BidX Scraper** - Monitor highway lettings for steel/metal line items
+
+### Tier 3 - Register for Email Alerts (Manual/Semi-Automated)
+11. **Milwaukee County Bonfire** - Register, parse alert emails
+12. **City of Milwaukee Bonfire** - Register, parse alert emails
+13. **MI SIGMA VSS** - Register, parse alert emails
+14. **IN IDOA** - Register, parse alert emails
+15. **IA IMPACS** - Register, parse alert emails
+16. **MN OSP** - Register, parse alert emails
+17. **IL Tollway Plan Room** - Register, monitor construction lettings
+
+### Tier 4 - Paid Services (If Budget Allows)
+18. **PlanHub Free Tier + API** - Start free, upgrade to API if ROI justifies
+19. **ConstructConnect Starter** - $129/month for GC bid invitations
+20. **Dodge Construction Network** - $6K+/year, best project intelligence, consider if revenue justifies
+
+### Email Parsing Architecture
+Since most Midwest state portals only offer email alerts (no APIs), the highest-leverage automation is:
+1. Create a dedicated email inbox (e.g., bids@tcbmetalworks.com)
+2. Register on ALL state portals with appropriate commodity/NIGP codes using this email
+3. Build an email parser that extracts bid details from notification emails
+4. Feed parsed bids into the CRM pipeline automatically
+5. This single email parser approach covers WI, IL, MI, IN, IA, MN state portals with minimal code
+
+---
+
+## FEDERAL IMPLEMENTATION PRIORITY ORDER
 
 ### Tier 1 - Build Now (Free, API Available, High Value)
 1. **USASpending.gov API** - No auth, rich contract award data
@@ -518,6 +1017,8 @@ International Trade Administration provides trade leads including foreign govern
 
 ### Already Have
 - SAM.gov Opportunities API (existing samgov.ts fetcher)
+
+**See "REVISED IMPLEMENTATION PRIORITY ORDER (Midwest Focus)" section above for the full Midwest state/local/private priority list.**
 
 ---
 

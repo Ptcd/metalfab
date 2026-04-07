@@ -64,59 +64,95 @@ async function scrapeProvider(browser, provider) {
     console.log(`  Page title: ${pageTitle}`);
     console.log(`  Final URL: ${page.url()}`);
 
-    // Strategy 1: Look for opportunity cards/rows in the rendered DOM
-    // Bonfire portals typically render a list of opportunity cards with titles, dates, and links
+    // Strategy 1: Extract from table rows (Bonfire renders a table with columns:
+    // Status, Ref#, Project, Department, Close Date, Days Left, Action)
     let opportunities = await page.evaluate((providerUrl) => {
       const results = [];
       const baseUrl = new URL(providerUrl).origin;
 
-      // Bonfire renders opportunity listings as links/cards
-      // Look for links that point to opportunity detail pages
-      const allLinks = Array.from(document.querySelectorAll('a[href*="/opportunities/"], a[href*="/portal/"]'));
+      // First try: table rows containing /opportunities/ links
+      const rows = document.querySelectorAll('tr');
+      for (const row of rows) {
+        const link = row.querySelector('a[href*="/opportunities/"]');
+        if (!link) continue;
 
-      // Also try broader selectors for card-like elements
-      const cards = document.querySelectorAll('[class*="opportunity"], [class*="Opportunity"], [class*="card"], [class*="Card"], [class*="listing"], [class*="Listing"]');
+        const cells = Array.from(row.querySelectorAll('td'));
+        if (cells.length < 3) continue;
 
-      // Try to find opportunity links - Bonfire URLs typically have /opportunities/SLUG pattern
-      const opportunityLinks = Array.from(document.querySelectorAll('a'))
-        .filter(a => a.href && a.href.includes('/opportunities/'));
+        // Extract fields from table cells
+        const cellTexts = cells.map(c => c.textContent.trim());
 
-      for (const link of opportunityLinks) {
-        const title = link.textContent?.trim();
-        if (!title || title.length < 5) continue;
-
-        // Look for closing date near the link (in parent/sibling elements)
+        // Find the project name — it's the longest cell text that isn't a date/status/number
+        let title = null;
         let closingDate = null;
-        const parentCard = link.closest('[class*="card"], [class*="Card"], [class*="opportunity"], [class*="Opportunity"], tr, li, [class*="row"], [class*="Row"], [class*="item"], [class*="Item"]') || link.parentElement?.parentElement;
+        let department = null;
+        let refNum = null;
 
-        if (parentCard) {
-          const cardText = parentCard.textContent || '';
-          // Look for date patterns: "Mar 15, 2026", "2026-03-15", "03/15/2026", "Closing: ..."
-          const datePatterns = [
-            /(?:clos(?:e|ing|es)|deadline|due|end)\s*(?:date)?[:\s]*(\w+\s+\d{1,2},?\s*\d{4})/i,
-            /(\w+\s+\d{1,2},?\s*\d{4})/,
-            /(\d{2}\/\d{2}\/\d{4})/,
-            /(\d{4}-\d{2}-\d{2})/,
-          ];
-          for (const pattern of datePatterns) {
-            const match = cardText.match(pattern);
-            if (match) {
-              closingDate = match[1];
-              break;
+        for (const ct of cellTexts) {
+          if (!ct) continue;
+          // Date patterns
+          if (!closingDate && /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2}/i.test(ct)) {
+            closingDate = ct;
+          }
+          // Ref number (short numeric/alpha code)
+          else if (!refNum && /^\d{4,8}$/.test(ct)) {
+            refNum = ct;
+          }
+          // Skip "View Opportunity", "Open", short status words
+          else if (/^(view|open|closed|pending|new)/i.test(ct) && ct.length < 20) {
+            continue;
+          }
+          // Skip days-left counters
+          else if (/^\d+\s*(days?|hrs?|hours?)/i.test(ct)) {
+            continue;
+          }
+          // Title is the longest meaningful text
+          else if (ct.length > 10 && (!title || ct.length > title.length)) {
+            // But not if it's a department and we already have one
+            if (title && ct.length < 30) {
+              department = ct;
+            } else {
+              if (title) department = title; // demote previous title to dept
+              title = ct;
             }
+          }
+          // Short text could be department
+          else if (ct.length > 2 && ct.length <= 30 && !department) {
+            department = ct;
           }
         }
 
+        if (!title || title.length < 5) continue;
+
         const href = link.href.startsWith('http') ? link.href : baseUrl + link.getAttribute('href');
 
-        // Avoid duplicates
         if (!results.find(r => r.url === href)) {
           results.push({
             title,
             url: href,
             closingDate,
-            rawText: parentCard?.textContent?.trim().substring(0, 500) || title
+            department,
+            refNum,
+            rawText: row.textContent.trim().substring(0, 500)
           });
+        }
+      }
+
+      // Fallback: if no table rows found, try /opportunities/ links with parent context
+      if (results.length === 0) {
+        const oppLinks = Array.from(document.querySelectorAll('a'))
+          .filter(a => a.href && a.href.includes('/opportunities/'));
+        for (const link of oppLinks) {
+          const parent = link.closest('tr, li, div, [class*="card"]') || link.parentElement?.parentElement;
+          const parentText = parent?.textContent?.trim() || '';
+          const linkText = link.textContent.trim();
+          // Use parent text if link text is generic
+          const title = (linkText.length > 20 && !/^view/i.test(linkText)) ? linkText : parentText.split('\n').find(l => l.trim().length > 15) || linkText;
+          if (!title || title.length < 5) continue;
+          const href = link.href.startsWith('http') ? link.href : baseUrl + link.getAttribute('href');
+          if (!results.find(r => r.url === href)) {
+            results.push({ title: title.trim(), url: href, closingDate: null, rawText: parentText.substring(0, 500) });
+          }
         }
       }
 

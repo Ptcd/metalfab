@@ -9,7 +9,7 @@
  *
  * Usage: node scripts/run-pipeline.js [--skip-headless] [--only=source1,source2]
  *
- * Sources: samgov, bidnet, demandstar, racine-county, milwaukee, mke-county, kenosha, vendornet, questcdn, wi-munis, bonfire, sigma, cullen
+ * Sources: samgov, bidnet, demandstar, racine-county, milwaukee, mke-county, kenosha, vendornet, questcdn, wi-munis, bonfire, sigma, cullen, cdsmith
  */
 
 const { execSync, spawn } = require('child_process');
@@ -34,6 +34,7 @@ const FETCHERS = {
   'bidbuy':        { script: 'fetch-bidbuy.js',          headless: true,  timeout: 300000 },
   'sigma':         { script: 'fetch-sigma.js',          headless: true,  timeout: 180000 },
   'cullen':        { script: 'fetch-cullen.js',         headless: false, timeout: 30000 },
+  'cdsmith':       { script: 'fetch-cdsmith.js',        headless: false, timeout: 30000 },
 };
 
 const POST_SCRIPTS = [

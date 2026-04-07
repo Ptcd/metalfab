@@ -38,19 +38,30 @@ async function supabaseRequest(method, endpoint, body = null) {
 async function scrape() {
   console.log('🏛️  Fetching Milwaukee County bids page...');
 
-  // Node fetch gets 403'd — use curl
+  // Node fetch gets 403'd — use curl with retry
   let html;
-  try {
-    html = execSync(
-      `curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "${BIDS_URL}"`,
-      { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024, timeout: 30000 }
-    );
-  } catch (e) {
-    throw new Error(`Failed to fetch ${BIDS_URL}: ${e.message}`);
+  const MAX_RETRIES = 3;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      html = execSync(
+        `curl -s -L --connect-timeout 15 --max-time 30 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" -H "Accept: text/html,application/xhtml+xml" -H "Accept-Language: en-US,en;q=0.9" "${BIDS_URL}"`,
+        { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024, timeout: 45000 }
+      );
+      if (html && html.length > 500) break;
+      console.log(`  Attempt ${attempt}: got ${html ? html.length : 0} bytes — retrying...`);
+      html = null;
+    } catch (e) {
+      console.log(`  Attempt ${attempt} failed: ${e.message.slice(0, 80)}`);
+      html = null;
+    }
+    if (attempt < MAX_RETRIES) {
+      const delay = attempt * 3000;
+      console.log(`  Waiting ${delay/1000}s before retry...`);
+      execSync(`ping -n ${Math.ceil(delay/1000)} 127.0.0.1 > nul`, { encoding: 'utf8', timeout: delay + 2000 });
+    }
   }
-
   if (!html || html.length < 500) {
-    throw new Error(`Empty or too-short response from ${BIDS_URL}`);
+    throw new Error(`Failed to fetch ${BIDS_URL} after ${MAX_RETRIES} attempts`);
   }
 
   const $ = cheerio.load(html);

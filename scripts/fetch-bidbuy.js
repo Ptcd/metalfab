@@ -29,7 +29,9 @@ const PUBLIC_BIDS_URL = 'https://www.bidbuy.illinois.gov/bso/external/publicBids
 const BID_DETAIL_BASE = 'https://www.bidbuy.illinois.gov/bso/external/bidDetail.sda';
 
 const DEBUG = process.argv.includes('--debug');
+const QUICK = process.argv.includes('--quick');
 const MAX_PAGES = parseInt(process.env.BIDBUY_MAX_PAGES || '10');
+const DETAIL_DELAY_MS = 1500; // Rate limit: 1.5s between detail page visits
 
 async function supabaseRequest(method, endpoint, body = null) {
   const url = `${SUPABASE_URL}/rest/v1/${endpoint}`;
@@ -210,8 +212,8 @@ function parseBidRow(row, headers) {
         const match = link.href.match(/docId=([^&]+)/);
         if (match) bidNumber = match[1];
       }
-      // Link text is often the bid title
-      if (link.text && link.text.length > 10 && !title) {
+      // Link text is often the bid title — but skip if it's just a bid number
+      if (link.text && link.text.length > 10 && !title && !/^\d{2}-\d{3}[A-Z]/.test(link.text.trim())) {
         title = link.text;
       }
     }
@@ -240,8 +242,42 @@ function parseBidRow(row, headers) {
     // Table-style: use headers to map cells, or use heuristics
     const cells = row.cells || [];
 
-    if (headers && headers.length > 0 && headers.length <= cells.length) {
-      // Map by header names
+    // PrimeFaces responsive tables prepend header labels to cell values
+    // e.g. "DescriptionI-24-4975-EWO #11" or "Organization NameTHA - Toll Highway Authority"
+    // Try to extract values by stripping known header prefixes from cells
+    const headerPrefixes = [
+      { prefix: /^Bid Solicitation #/i, type: 'bidnum' },
+      { prefix: /^Organization Name/i, type: 'agency' },
+      { prefix: /^Description/i, type: 'description' },
+      { prefix: /^Buyer/i, type: 'buyer' },
+      { prefix: /^Bid Opening Date/i, type: 'date' },
+      { prefix: /^Blanket #/i, type: 'skip' },
+      { prefix: /^Bid Holder List/i, type: 'skip' },
+      { prefix: /^Awarded Vendor/i, type: 'skip' },
+      { prefix: /^Status/i, type: 'status' },
+      { prefix: /^Alternate Id/i, type: 'skip' },
+    ];
+
+    for (const cellText of cells) {
+      const trimmed = (cellText || '').trim();
+      if (!trimmed) continue;
+
+      for (const { prefix, type } of headerPrefixes) {
+        if (prefix.test(trimmed)) {
+          const val = trimmed.replace(prefix, '').trim();
+          if (!val) break;
+          if (type === 'bidnum' && !bidNumber) bidNumber = val;
+          else if (type === 'description' && !title) title = val;
+          else if (type === 'agency' && !agency) agency = val;
+          else if (type === 'buyer' && !agency) agency = val;
+          else if (type === 'date' && !closeDate) closeDate = val;
+          break;
+        }
+      }
+    }
+
+    // Fallback: header-based mapping if cells have normal structure (no prefixes)
+    if (!bidNumber && !title && headers && headers.length > 0 && headers.length <= cells.length) {
       for (let i = 0; i < headers.length; i++) {
         const h = (headers[i] || '').toLowerCase();
         const val = (cells[i] || '').trim();
@@ -364,6 +400,243 @@ async function goToNextPage(page) {
   return hasNext;
 }
 
+/**
+ * Check if a title is just a bid number placeholder (needs enrichment).
+ * Matches patterns like "26-557THA-ENGCO-B-50362" or "Illinois Bid 26-..."
+ */
+function titleNeedsEnrichment(title) {
+  if (!title) return true;
+  // Matches raw bid number pattern: "26-557THA-ENGCO-B-50362"
+  if (/^\d{2}-\d{3}[A-Z]/.test(title.trim())) return true;
+  // Matches "Illinois Bid 26-..."
+  if (/^Illinois Bid \d{2}-/i.test(title.trim())) return true;
+  return false;
+}
+
+/**
+ * Visit a bid detail page and extract the real title, agency, close date, and commodity codes.
+ */
+async function extractBidDetail(page, bidNumber) {
+  const detailUrl = `${BID_DETAIL_BASE}?docId=${encodeURIComponent(bidNumber)}`;
+  try {
+    await page.goto(detailUrl, { waitUntil: 'networkidle2', timeout: 25000 });
+    await new Promise(r => setTimeout(r, 2000));
+
+    const detail = await page.evaluate(() => {
+      const result = { title: null, agency: null, closeDate: null, commodityCodes: null };
+
+      // Try to find the bid title/description from prominent text elements
+      // BidBuy detail pages typically have the title in an h1, h2, or a labeled field
+      const headings = document.querySelectorAll('h1, h2, h3');
+      for (const h of headings) {
+        const text = h.textContent.trim();
+        // Skip generic headings like "Bid Detail" or very short ones
+        if (text.length > 10 && !/^(bid\s*detail|solicitation\s*detail|document\s*detail)/i.test(text)) {
+          result.title = text;
+          break;
+        }
+      }
+
+      // Also look for labeled fields in tables or definition lists
+      const allText = document.body.innerText || '';
+      const labelSelectors = [
+        'td', 'th', 'dt', 'label', 'span', '.field-label', '.label',
+        '[class*="label"]', '[class*="field"]'
+      ];
+
+      // Build a map of label -> value pairs from the page
+      const labelMap = {};
+      const rows = document.querySelectorAll('tr');
+      rows.forEach(row => {
+        const cells = row.querySelectorAll('td, th');
+        if (cells.length >= 2) {
+          const label = cells[0].textContent.trim().toLowerCase();
+          const value = cells[1].textContent.trim();
+          if (label && value) labelMap[label] = value;
+        }
+      });
+
+      // Also check dt/dd pairs
+      const dts = document.querySelectorAll('dt');
+      dts.forEach(dt => {
+        const dd = dt.nextElementSibling;
+        if (dd && dd.tagName === 'DD') {
+          labelMap[dt.textContent.trim().toLowerCase()] = dd.textContent.trim();
+        }
+      });
+
+      // Extract title from labeled fields if heading didn't work
+      if (!result.title) {
+        for (const [label, value] of Object.entries(labelMap)) {
+          if ((label.includes('title') || label.includes('description') || label.includes('solicitation name') || label.includes('bid name') || label.includes('subject'))
+              && value.length > 10) {
+            result.title = value;
+            break;
+          }
+        }
+      }
+
+      // Extract agency
+      for (const [label, value] of Object.entries(labelMap)) {
+        if ((label.includes('agency') || label.includes('department') || label.includes('organization') || label.includes('buyer') || label.includes('issuing'))
+            && value.length > 2) {
+          result.agency = value;
+          break;
+        }
+      }
+
+      // Extract close date
+      for (const [label, value] of Object.entries(labelMap)) {
+        if ((label.includes('close') || label.includes('due') || label.includes('deadline') || label.includes('opening') || label.includes('response'))
+            && /\d{1,2}\/\d{1,2}\/\d{4}/.test(value)) {
+          result.closeDate = value;
+          break;
+        }
+      }
+
+      // Extract commodity/category codes
+      for (const [label, value] of Object.entries(labelMap)) {
+        if ((label.includes('commodity') || label.includes('category') || label.includes('nigp') || label.includes('naics') || label.includes('class'))
+            && value.length > 1) {
+          result.commodityCodes = value;
+          break;
+        }
+      }
+
+      // Fallback: scan for a description block (large text block that isn't navigation)
+      if (!result.title) {
+        const paras = document.querySelectorAll('p, .description, [class*="desc"], [class*="detail-content"], .content');
+        for (const p of paras) {
+          const text = p.textContent.trim();
+          if (text.length > 20 && text.length < 500 && !/cookie|privacy|terms|navigation/i.test(text)) {
+            result.title = text;
+            break;
+          }
+        }
+      }
+
+      // Clean up title
+      if (result.title) {
+        result.title = result.title.replace(/\s+/g, ' ').trim();
+        if (result.title.length > 300) result.title = result.title.substring(0, 300) + '...';
+      }
+
+      return result;
+    });
+
+    await debugScreenshot(page, `detail-${bidNumber.replace(/[^a-zA-Z0-9]/g, '_')}`);
+    return detail;
+  } catch (err) {
+    console.log(`     Detail page error for ${bidNumber}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Enrich bids by visiting their detail pages and updating Supabase.
+ * Only visits detail pages for bids whose titles look like bid number placeholders.
+ */
+async function enrichBidDetails(page, allBids) {
+  const needsEnrichment = allBids.filter(b => b.bidNumber && titleNeedsEnrichment(b.title));
+  console.log(`\n🔍 Detail enrichment: ${needsEnrichment.length} of ${allBids.length} bids need detail page visits`);
+
+  if (needsEnrichment.length === 0) return { enriched: 0, failed: 0 };
+
+  // Also check which ones in Supabase still have placeholder titles
+  let alreadyEnriched = new Set();
+  try {
+    // Fetch existing records to see which ones already have real titles
+    const noticeIds = needsEnrichment.map(b => b.noticeId);
+    // Query in batches of 50 to avoid URL length issues
+    for (let i = 0; i < noticeIds.length; i += 50) {
+      const batch = noticeIds.slice(i, i + 50);
+      const filter = batch.map(id => `"${id}"`).join(',');
+      const existing = await supabaseRequest('GET',
+        `opportunities?sam_notice_id=in.(${filter})&select=sam_notice_id,title`
+      );
+      for (const rec of existing) {
+        if (!titleNeedsEnrichment(rec.title)) {
+          alreadyEnriched.add(rec.sam_notice_id);
+        }
+      }
+    }
+    console.log(`  ${alreadyEnriched.size} already have real titles in DB, skipping those`);
+  } catch (e) {
+    console.log(`  Could not check existing titles: ${e.message}, will enrich all`);
+  }
+
+  const toEnrich = needsEnrichment.filter(b => !alreadyEnriched.has(b.noticeId));
+  console.log(`  Visiting ${toEnrich.length} detail pages...`);
+
+  let enriched = 0;
+  let failed = 0;
+
+  for (let i = 0; i < toEnrich.length; i++) {
+    const bid = toEnrich[i];
+    console.log(`  [${i + 1}/${toEnrich.length}] Fetching detail for ${bid.bidNumber}...`);
+
+    const detail = await extractBidDetail(page, bid.bidNumber);
+
+    if (detail && detail.title && !titleNeedsEnrichment(detail.title)) {
+      console.log(`     Title: ${detail.title.slice(0, 80)}`);
+      if (detail.agency) console.log(`     Agency: ${detail.agency}`);
+      if (detail.closeDate) console.log(`     Closes: ${detail.closeDate}`);
+      if (detail.commodityCodes) console.log(`     Codes: ${detail.commodityCodes}`);
+
+      // Update the bid object
+      bid.title = detail.title;
+      if (detail.agency) bid.agency = detail.agency;
+      if (detail.closeDate) {
+        bid.closeDate = detail.closeDate;
+        try {
+          const d = new Date(detail.closeDate);
+          if (!isNaN(d)) bid.closeDateISO = d.toISOString().split('T')[0];
+        } catch (e) {}
+      }
+
+      // Update Supabase record
+      try {
+        const updateData = { title: detail.title };
+        if (detail.agency) updateData.agency = detail.agency;
+        if (bid.closeDateISO) updateData.response_deadline = bid.closeDateISO;
+        if (detail.commodityCodes) {
+          // Merge commodity codes into raw_data
+          updateData.raw_data = JSON.stringify({
+            bidNumber: bid.bidNumber,
+            title: detail.title,
+            agency: detail.agency || bid.agency,
+            closeDate: bid.closeDate,
+            commodityCodes: detail.commodityCodes,
+            sourceUrl: bid.sourceUrl,
+            scraped_at: new Date().toISOString(),
+            enriched_at: new Date().toISOString(),
+          });
+        }
+
+        await supabaseRequest('PATCH',
+          `opportunities?sam_notice_id=eq.${encodeURIComponent(bid.noticeId)}`,
+          updateData
+        );
+        enriched++;
+      } catch (e) {
+        console.log(`     DB update error: ${e.message}`);
+        failed++;
+      }
+    } else {
+      console.log(`     No usable title found on detail page`);
+      failed++;
+    }
+
+    // Rate limit
+    if (i < toEnrich.length - 1) {
+      await new Promise(r => setTimeout(r, DETAIL_DELAY_MS));
+    }
+  }
+
+  console.log(`\n📝 Enrichment complete: ${enriched} updated, ${failed} failed/no-data`);
+  return { enriched, failed };
+}
+
 async function scrape() {
   console.log('🏛️  Launching browser for BidBuy Illinois...');
   const browser = await puppeteer.launch({
@@ -451,6 +724,7 @@ async function scrape() {
     // Parse and import
     let imported = 0;
     let skipped = 0;
+    let updated = 0;
     const allBids = [];
     const seenIds = new Set();
 
@@ -489,10 +763,31 @@ async function scrape() {
       } catch (e) {
         if (e.message.includes('duplicate') || e.message.includes('conflict') || e.message.includes('23505')) {
           skipped++;
+          // Update existing record if we now have a real title (not just bid number)
+          if (bid.title && !/^\d{2}-\d{3}[A-Z]/.test(bid.title) && !/^Illinois Bid/.test(bid.title)) {
+            try {
+              const updateData = { title: bid.title };
+              if (bid.agency) updateData.agency = bid.agency;
+              if (bid.closeDateISO) updateData.response_deadline = bid.closeDateISO;
+              await supabaseRequest('PATCH',
+                `opportunities?sam_notice_id=eq.${encodeURIComponent(bid.noticeId)}`,
+                updateData
+              );
+              updated++;
+            } catch (ue) { /* ignore update errors */ }
+          }
         } else {
           console.error(`     Error: ${e.message}`);
         }
       }
+    }
+
+    // ── Detail page enrichment ──
+    let enrichResult = { enriched: 0, failed: 0 };
+    if (QUICK) {
+      console.log('\n⚡ --quick flag set, skipping detail page enrichment');
+    } else {
+      enrichResult = await enrichBidDetails(page, allBids);
     }
 
     await debugScreenshot(page, 'final');
@@ -506,6 +801,8 @@ async function scrape() {
       bidsFound: allBids.length,
       imported,
       skipped,
+      enriched: enrichResult.enriched,
+      enrichFailed: enrichResult.failed,
       bids: allBids.map(b => ({
         bidNumber: b.bidNumber,
         title: b.title,
@@ -514,7 +811,7 @@ async function scrape() {
       })),
     };
 
-    console.log(`\n💾 Total: imported ${imported}, skipped ${skipped} from ${allBids.length} bids`);
+    console.log(`\n💾 Total: imported ${imported}, updated ${updated}, skipped ${skipped}, enriched ${enrichResult.enriched} from ${allBids.length} bids`);
 
     console.log('\n__BIDBUY_JSON__');
     console.log(JSON.stringify(summary, null, 2));
@@ -531,7 +828,7 @@ async function scrape() {
 }
 
 scrape().then(result => {
-  console.log(`\n✅ BidBuy fetch complete. Found ${result.bidsFound} bids (${result.imported} new, ${result.skipped} dupes).`);
+  console.log(`\n✅ BidBuy fetch complete. Found ${result.bidsFound} bids (${result.imported} new, ${result.skipped} dupes, ${result.enriched || 0} enriched).`);
 }).catch(err => {
   console.error('Fatal error:', err);
   process.exit(1);

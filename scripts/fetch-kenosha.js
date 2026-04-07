@@ -42,17 +42,26 @@ async function scrape() {
   console.log('🏙️  Fetching City of Kenosha bids page...');
 
   let html;
-  try {
-    html = execSync(
-      `curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "${BIDS_URL}"`,
-      { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024, timeout: 30000 }
-    );
-  } catch (e) {
-    throw new Error(`Failed to fetch ${BIDS_URL}: ${e.message}`);
+  const MAX_RETRIES = 3;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      html = execSync(
+        `curl -s -L --connect-timeout 15 --max-time 30 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" -H "Accept: text/html" "${BIDS_URL}"`,
+        { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024, timeout: 45000 }
+      );
+      if (html && html.length > 500) break;
+      console.log(`  Attempt ${attempt}: short response — retrying...`);
+      html = null;
+    } catch (e) {
+      console.log(`  Attempt ${attempt} failed: ${e.message.slice(0, 80)}`);
+      html = null;
+    }
+    if (attempt < MAX_RETRIES) {
+      execSync(`ping -n ${attempt * 2} 127.0.0.1 > nul`, { encoding: 'utf8', timeout: 10000 });
+    }
   }
-
   if (!html || html.length < 500) {
-    throw new Error(`Empty or too-short response from ${BIDS_URL}`);
+    throw new Error(`Failed to fetch ${BIDS_URL} after ${MAX_RETRIES} attempts`);
   }
 
   const $ = cheerio.load(html);

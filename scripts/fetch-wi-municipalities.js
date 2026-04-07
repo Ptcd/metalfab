@@ -36,15 +36,23 @@ async function supabaseRequest(method, endpoint, body = null) {
   return res.json();
 }
 
-function curlFetch(url) {
-  try {
-    return execSync(
-      `curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "${url}"`,
-      { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024, timeout: 20000 }
-    );
-  } catch (e) {
-    return null;
+function curlFetch(url, retries = 2) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const html = execSync(
+        `curl -s -L --connect-timeout 10 --max-time 20 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" -H "Accept: text/html" "${url}"`,
+        { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024, timeout: 30000 }
+      );
+      if (html && html.length > 200) return html;
+      console.log(`  Attempt ${attempt}: short response (${html ? html.length : 0}b) — retrying...`);
+    } catch (e) {
+      console.log(`  Attempt ${attempt} failed for ${url}: ${e.message.slice(0, 60)}`);
+    }
+    if (attempt < retries) {
+      execSync(`ping -n ${attempt * 2} 127.0.0.1 > nul`, { encoding: 'utf8', timeout: 10000 });
+    }
   }
+  return null;
 }
 
 async function importBid(bid) {

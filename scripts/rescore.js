@@ -157,6 +157,19 @@ function scoreOpportunity(opp, config) {
     textContains(text, 'fall protection program');
   signals.push({ signal: 'Non-fabrication primary work', delta: -20, fired: nonFab });
 
+  // Private sector GC subcontract: +15
+  const isPrivateGC = opp.source === 'cullen';
+  signals.push({ signal: 'Private sector GC subcontract (WI)', delta: 15, fired: isPrivateGC });
+
+  // Construction project keywords (boost for GC plan room projects): +10
+  const constructionHit = isPrivateGC && (
+    textContains(text, 'renovation') || textContains(text, 'addition') ||
+    textContains(text, 'construction') || textContains(text, 'remodel') ||
+    textContains(text, 'school') || textContains(text, 'hospital') ||
+    textContains(text, 'center') || textContains(text, 'building')
+  );
+  signals.push({ signal: 'Construction/renovation project', delta: 10, fired: constructionHit });
+
   const rawScore = signals.reduce((sum, s) => s.fired ? sum + s.delta : sum, 0);
   const score = Math.max(0, Math.min(100, rawScore));
   return { score, signals };

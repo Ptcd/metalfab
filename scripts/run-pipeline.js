@@ -36,6 +36,7 @@ const FETCHERS = {
   'cullen':        { script: 'fetch-cullen.js',         headless: false, timeout: 30000 },
   'cdsmith':       { script: 'fetch-cdsmith.js',        headless: false, timeout: 30000 },
   'scherrer':      { script: 'fetch-scherrer.js',       headless: false, timeout: 30000 },
+  'bc':            { script: 'fetch-buildingconnected.js', headless: false, timeout: 30000 },
 };
 
 const POST_SCRIPTS = [

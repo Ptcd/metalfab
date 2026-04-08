@@ -158,7 +158,7 @@ function scoreOpportunity(opp, config) {
   signals.push({ signal: 'Non-fabrication primary work', delta: -20, fired: nonFab });
 
   // Private sector GC subcontract: +15
-  const isPrivateGC = ['cullen', 'cdsmith', 'scherrer', 'buildingconnected'].includes(opp.source);
+  const isPrivateGC = ['cullen', 'cdsmith', 'scherrer', 'buildingconnected', 'stevens'].includes(opp.source);
   signals.push({ signal: 'Private sector GC subcontract (WI)', delta: 15, fired: isPrivateGC });
 
   // Construction project keywords (boost for GC plan room projects): +10

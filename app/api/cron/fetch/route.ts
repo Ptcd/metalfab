@@ -1,21 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runFetchPipeline } from '@/lib/fetchers';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { runFetchDocs } = require('../../../../scripts/fetch-docs');
 
-export async function GET(request: NextRequest) {
-  // Verify cron secret (Vercel sends this header)
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
+export const maxDuration = 900; // 15 min
 
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+function authorized(req: NextRequest) {
+  const header = req.headers.get('authorization');
+  const secret = process.env.CRON_SECRET;
+  return secret && header === `Bearer ${secret}`;
+}
+
+/**
+ * Morning cron:
+ *   1. Scrape SAM.gov (and other HTTP-only sources wired into runFetchPipeline)
+ *   2. fetch-docs.js — download bid documents for opportunities above threshold
+ *      and promote them to awaiting_qa
+ *
+ * Puppeteer-based scrapers (BidNet, Bonfire, etc.) still run locally via
+ * scripts/run-pipeline.js — Vercel serverless can't bundle headful Chromium.
+ */
+async function runMorning(daysBack: number) {
+  const startedAt = Date.now();
+  const steps: Array<{ step: string; ms: number; result?: unknown }> = [];
+
+  const scrapeStart = Date.now();
+  const fetchResult = await runFetchPipeline(daysBack);
+  steps.push({ step: 'scrape', ms: Date.now() - scrapeStart, result: fetchResult });
+
+  let docsResult: unknown = { skipped: true };
+  try {
+    const docsStart = Date.now();
+    docsResult = await runFetchDocs();
+    steps.push({ step: 'fetch-docs', ms: Date.now() - docsStart, result: docsResult });
+  } catch (err) {
+    steps.push({
+      step: 'fetch-docs',
+      ms: 0,
+      result: { error: err instanceof Error ? err.message : String(err) },
+    });
   }
 
+  return {
+    success: true,
+    total_ms: Date.now() - startedAt,
+    steps,
+    scrape: fetchResult,
+    docs: docsResult,
+  };
+}
+
+export async function GET(request: NextRequest) {
+  if (!authorized(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   try {
-    const result = await runFetchPipeline(1); // last 24 hours
-    return NextResponse.json({
-      success: true,
-      ...result,
-    });
+    return NextResponse.json(await runMorning(1));
   } catch (err) {
     console.error('Cron fetch error:', err);
     return NextResponse.json(
@@ -25,30 +65,19 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Also allow POST for manual triggers
 export async function POST(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+  if (!authorized(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-
-  // Allow specifying days_back for initial backfill
   let daysBack = 1;
   try {
     const body = await request.json();
     if (body.days_back) daysBack = Math.min(body.days_back, 30);
   } catch {
-    // No body or invalid JSON — use default
+    // no body
   }
-
   try {
-    const result = await runFetchPipeline(daysBack);
-    return NextResponse.json({
-      success: true,
-      ...result,
-    });
+    return NextResponse.json(await runMorning(daysBack));
   } catch (err) {
     console.error('Manual fetch error:', err);
     return NextResponse.json(

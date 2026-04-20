@@ -7,7 +7,18 @@ import { ScoreBadge } from "../components/ScoreBadge";
 import { StatusBadge } from "../components/StatusBadge";
 import { AddOpportunityModal } from "./AddOpportunityModal";
 
-const statuses: (OpportunityStatus | "")[] = ["", "new", "reviewing", "bidding", "won", "lost", "passed"];
+const statuses: (OpportunityStatus | "")[] = [
+  "",
+  "new",
+  "reviewing",
+  "awaiting_qa",
+  "qa_qualified",
+  "qa_rejected",
+  "bidding",
+  "won",
+  "lost",
+  "passed",
+];
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "—";

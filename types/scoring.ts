@@ -8,6 +8,12 @@ export interface ScoringConfig {
   dollar_max: number;
   score_green: number;
   score_yellow: number;
+  qa_analysis_enabled: boolean;
+  qa_min_score_threshold: number;
+  estimator_email: string | null;
+  owner_email: string | null;
+  doc_retention_won_days: number;
+  doc_retention_lost_days: number;
   updated_at: string;
 }
 
@@ -20,6 +26,12 @@ export interface ScoringConfigUpdate {
   dollar_max?: number;
   score_green?: number;
   score_yellow?: number;
+  qa_analysis_enabled?: boolean;
+  qa_min_score_threshold?: number;
+  estimator_email?: string | null;
+  owner_email?: string | null;
+  doc_retention_won_days?: number;
+  doc_retention_lost_days?: number;
 }
 
 export interface ScoreSignal {

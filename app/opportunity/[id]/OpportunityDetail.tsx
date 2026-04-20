@@ -2,12 +2,22 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Opportunity, OpportunityStatus } from "@/types/opportunity";
+import { Opportunity, OpportunityStatus, BidDocument, QaReport } from "@/types/opportunity";
 import { ScoreSignal } from "@/types/scoring";
 import { ScoreBadge } from "../../components/ScoreBadge";
 import { StatusBadge } from "../../components/StatusBadge";
 
-const allStatuses: OpportunityStatus[] = ["new", "reviewing", "bidding", "won", "lost", "passed"];
+const allStatuses: OpportunityStatus[] = [
+  "new",
+  "reviewing",
+  "awaiting_qa",
+  "qa_qualified",
+  "qa_rejected",
+  "bidding",
+  "won",
+  "lost",
+  "passed",
+];
 
 interface Props {
   opportunity: Opportunity;
@@ -43,6 +53,8 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
   }
 
   const signals: ScoreSignal[] = Array.isArray(opp.score_signals) ? opp.score_signals : [];
+  const documents: BidDocument[] = Array.isArray(opp.documents) ? opp.documents : [];
+  const qaReport: QaReport | null = opp.qa_report ?? null;
 
   function formatDollars(n: number | null) {
     if (n == null) return "—";
@@ -94,6 +106,103 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
             {opp.point_of_contact}{opp.contact_email ? ` — ${opp.contact_email}` : ""}
           </p>
         </div>
+      )}
+
+      {/* QA Report */}
+      {qaReport && (
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
+            QA Report
+            {opp.qa_needs_human_review && (
+              <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">(needs human review)</span>
+            )}
+          </h3>
+          <div className="bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-900/40 rounded-lg p-4 space-y-3 text-sm">
+            <div>
+              <span className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Recommendation</span>
+              <p className="font-semibold text-slate-900 dark:text-white">
+                {qaReport.recommendation}
+                {qaReport.steel_metals_estimated_value_usd != null &&
+                  ` · Metals est. ~$${qaReport.steel_metals_estimated_value_usd.toLocaleString()}`}
+              </p>
+              {qaReport.recommendation_reasoning && (
+                <p className="text-slate-700 dark:text-slate-300 italic mt-1">{qaReport.recommendation_reasoning}</p>
+              )}
+            </div>
+            {qaReport.scope_summary && (
+              <div>
+                <span className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Scope summary</span>
+                <p className="text-slate-800 dark:text-slate-200 whitespace-pre-wrap">{qaReport.scope_summary}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <span className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Steel/metals present</span>
+                <p className="text-slate-900 dark:text-white">{qaReport.steel_metals_present ? "yes" : "no"}</p>
+              </div>
+              <div>
+                <span className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Due date (confirmed)</span>
+                <p className="text-slate-900 dark:text-white">{qaReport.due_date_confirmed ?? "—"}</p>
+              </div>
+              <div>
+                <span className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Pre-bid meeting</span>
+                <p className="text-slate-900 dark:text-white">{qaReport.pre_bid_meeting ?? "—"}</p>
+              </div>
+              <div>
+                <span className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Location</span>
+                <p className="text-slate-900 dark:text-white">{qaReport.location_address ?? "—"}</p>
+              </div>
+            </div>
+            {(qaReport.risk_flags?.length ?? 0) > 0 && (
+              <div>
+                <span className="text-xs uppercase tracking-wider text-amber-700 dark:text-amber-400">Risk flags</span>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {qaReport.risk_flags.map((f) => (
+                    <span key={f} className="text-xs font-mono bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 rounded">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {(qaReport.scope_exclusions?.length ?? 0) > 0 && (
+              <div>
+                <span className="text-xs uppercase tracking-wider text-amber-700 dark:text-amber-400">Scope exclusions</span>
+                <ul className="list-disc list-inside text-slate-800 dark:text-slate-200 mt-1">
+                  {qaReport.scope_exclusions.map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
+              </div>
+            )}
+            <p className="text-xs text-slate-500 dark:text-slate-500">Analyzed {qaReport.analyzed_at}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Documents */}
+      {documents.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
+            Documents ({documents.length})
+          </h3>
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg divide-y divide-slate-200 dark:divide-slate-700">
+            {documents.map((d) => (
+              <div key={d.storage_path} className="px-4 py-2 text-sm flex items-center justify-between">
+                <div>
+                  <p className="text-slate-900 dark:text-white">{d.filename}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {d.category} · {Math.round(d.file_size / 1024)} KB · {d.mime_type}
+                  </p>
+                </div>
+                <span className="text-xs text-slate-400 font-mono">{d.storage_path}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {opp.docs_purged_at && documents.length === 0 && (
+        <p className="text-xs text-slate-400 italic mb-6">
+          Documents purged at {new Date(opp.docs_purged_at).toLocaleString()}.
+        </p>
       )}
 
       {/* Score breakdown */}

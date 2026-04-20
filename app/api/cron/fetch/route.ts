@@ -3,7 +3,7 @@ import { runFetchPipeline } from '@/lib/fetchers';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { runFetchDocs } = require('../../../../scripts/fetch-docs');
 
-export const maxDuration = 900; // 15 min
+export const maxDuration = 60;
 
 function authorized(req: NextRequest) {
   const header = req.headers.get('authorization');

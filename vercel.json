@@ -8,12 +8,5 @@
       "path": "/api/cron/digest",
       "schedule": "0 19 * * *"
     }
-  ],
-  "functions": {
-    "app/api/cron/fetch/route.ts": { "maxDuration": 900 },
-    "app/api/cron/digest/route.ts": { "maxDuration": 900 },
-    "app/api/cron/scrape-only/route.ts": { "maxDuration": 900 },
-    "app/api/cron/digest-only/route.ts": { "maxDuration": 900 },
-    "app/api/cron/cleanup-only/route.ts": { "maxDuration": 900 }
-  }
+  ]
 }

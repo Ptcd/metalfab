@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { runDigest } = require('../../../../scripts/send-daily-digest');
 
-export const maxDuration = 900;
+export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;

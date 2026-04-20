@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runFetchPipeline } from '@/lib/fetchers';
 
-export const maxDuration = 900;
+export const maxDuration = 60;
 
 /**
  * Manual trigger: run only the HTTP scrapers (SAM.gov etc.). No doc download,

@@ -4,7 +4,7 @@ const { runDigest } = require('../../../../scripts/send-daily-digest');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { runCleanup } = require('../../../../scripts/cleanup-storage');
 
-export const maxDuration = 900;
+export const maxDuration = 60;
 
 function authorized(req: NextRequest) {
   const header = req.headers.get('authorization');

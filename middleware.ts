@@ -1,54 +1,49 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+const SITE_ACCESS_COOKIE = "tcb_access";
+
+/**
+ * Single-gate auth: if SITE_ACCESS_CODE is set, every page request must
+ * carry the matching cookie. No per-user accounts.
+ *
+ * Cron endpoints are excluded — they authenticate via Bearer token.
+ * /unlock and /api/unlock must stay open so the gate is reachable.
+ */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Skip auth for login page, API routes (they have their own auth), and static assets
+  // Static + internal — always pass through
   if (
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/api/") ||
     pathname.startsWith("/_next/") ||
-    pathname.startsWith("/favicon")
+    pathname.startsWith("/favicon") ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml"
   ) {
     return NextResponse.next();
   }
 
-  let response = NextResponse.next({
-    request: { headers: request.headers },
-  });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          response = NextResponse.next({
-            request: { headers: request.headers },
-          });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
-
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    const loginUrl = new URL("/login", request.url);
-    return NextResponse.redirect(loginUrl);
+  // Cron endpoints authenticate via Authorization: Bearer — let them through
+  if (pathname.startsWith("/api/cron/")) {
+    return NextResponse.next();
   }
 
-  return response;
+  const siteCode = process.env.SITE_ACCESS_CODE;
+  if (!siteCode) {
+    // No gate configured (local dev without env var) — let everything through.
+    return NextResponse.next();
+  }
+
+  const isUnlockPath =
+    pathname === "/unlock" || pathname.startsWith("/api/unlock");
+  const hasAccess = request.cookies.get(SITE_ACCESS_COOKIE)?.value === siteCode;
+
+  if (!hasAccess && !isUnlockPath) {
+    const url = new URL("/unlock", request.url);
+    if (pathname !== "/") url.searchParams.set("next", pathname);
+    return NextResponse.redirect(url);
+  }
+
+  return NextResponse.next();
 }
 
 export const config = {

@@ -22,8 +22,28 @@ function isUrgent(deadline: string | null): boolean {
   return diff > 0 && diff < 72 * 60 * 60 * 1000;
 }
 
+interface SystemRun {
+  id: string;
+  run_type: string;
+  started_at: string;
+  ended_at: string | null;
+  status: string;
+  opportunities_processed: number;
+  docs_downloaded: number;
+  docs_purged: number;
+  errors_encountered: Array<{ step: string; message: string; at: string }> | null;
+  notes: string | null;
+}
+
 export default async function ActivityPage() {
   const supabase = createServiceClient();
+
+  // Recent system runs (cron + Claude Code)
+  const { data: systemRuns } = await supabase
+    .from("system_runs")
+    .select("*")
+    .order("started_at", { ascending: false })
+    .limit(20);
 
   // Recent events
   const { data: events } = await supabase
@@ -48,7 +68,17 @@ export default async function ActivityPage() {
 
   // Stats
   const { data: allOpps } = await supabase.from("opportunities").select("status, updated_at");
-  const statusCounts: Record<string, number> = { new: 0, reviewing: 0, bidding: 0, won: 0, lost: 0, passed: 0 };
+  const statusCounts: Record<string, number> = {
+    new: 0,
+    reviewing: 0,
+    awaiting_qa: 0,
+    qa_qualified: 0,
+    qa_rejected: 0,
+    bidding: 0,
+    won: 0,
+    lost: 0,
+    passed: 0,
+  };
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   let wonThisMonth = 0;
   let lostThisMonth = 0;
@@ -84,6 +114,52 @@ export default async function ActivityPage() {
         <StatCard label="Won (month)" value={wonThisMonth} color="emerald" />
         <StatCard label="Lost (month)" value={lostThisMonth} color="red" />
       </div>
+
+      {/* System runs */}
+      <section className="mb-8">
+        <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">System Runs</h3>
+        {(systemRuns?.length ?? 0) === 0 ? (
+          <p className="text-sm text-slate-400">No runs recorded yet.</p>
+        ) : (
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg divide-y divide-slate-200 dark:divide-slate-700">
+            {systemRuns?.map((r: SystemRun) => {
+              const duration = r.ended_at
+                ? Math.round((new Date(r.ended_at).getTime() - new Date(r.started_at).getTime()) / 1000)
+                : null;
+              const errorCount = Array.isArray(r.errors_encountered) ? r.errors_encountered.length : 0;
+              const statusColor =
+                r.status === "success"
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : r.status === "failed"
+                  ? "text-red-600 dark:text-red-400"
+                  : r.status === "partial"
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-slate-500";
+              return (
+                <div key={r.id} className="px-4 py-3 flex items-center justify-between text-sm">
+                  <div>
+                    <p className="font-medium text-slate-900 dark:text-white">
+                      <span className={statusColor}>●</span> {r.run_type}
+                      {r.notes && <span className="text-xs text-slate-500 dark:text-slate-400 ml-2">({r.notes})</span>}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {timeAgo(r.started_at)}
+                      {duration != null && ` · ${duration}s`}
+                      {r.opportunities_processed > 0 && ` · ${r.opportunities_processed} opps`}
+                      {r.docs_downloaded > 0 && ` · ${r.docs_downloaded} downloaded`}
+                      {r.docs_purged > 0 && ` · ${r.docs_purged} purged`}
+                      {errorCount > 0 && (
+                        <span className="text-red-600 dark:text-red-400"> · {errorCount} error{errorCount === 1 ? "" : "s"}</span>
+                      )}
+                    </p>
+                  </div>
+                  <span className={`text-xs font-semibold ${statusColor}`}>{r.status}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {/* Upcoming deadlines */}
       <section className="mb-8">

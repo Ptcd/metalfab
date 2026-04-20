@@ -32,6 +32,12 @@ export function ConfigEditor({ config }: Props) {
         dollar_max: data.dollar_max,
         score_green: data.score_green,
         score_yellow: data.score_yellow,
+        qa_analysis_enabled: data.qa_analysis_enabled,
+        qa_min_score_threshold: data.qa_min_score_threshold,
+        estimator_email: data.estimator_email,
+        owner_email: data.owner_email,
+        doc_retention_won_days: data.doc_retention_won_days,
+        doc_retention_lost_days: data.doc_retention_lost_days,
       }),
     });
 
@@ -103,6 +109,61 @@ export function ConfigEditor({ config }: Props) {
           value={data.score_yellow}
           onChange={(v) => setData({ ...data, score_yellow: v })}
         />
+      </div>
+
+      {/* QA Layer settings */}
+      <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-3">
+          QA Layer (Claude Code analysis + digest)
+        </h3>
+
+        <div className="flex items-center gap-2 mb-4">
+          <input
+            id="qa_enabled"
+            type="checkbox"
+            checked={data.qa_analysis_enabled}
+            onChange={(e) => setData({ ...data, qa_analysis_enabled: e.target.checked })}
+            className="rounded"
+          />
+          <label htmlFor="qa_enabled" className="text-sm text-slate-700 dark:text-slate-300">
+            QA analysis enabled (promote passing opportunities to <code>awaiting_qa</code>)
+          </label>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <NumberField
+            label="QA min score threshold"
+            value={data.qa_min_score_threshold}
+            onChange={(v) => setData({ ...data, qa_min_score_threshold: v })}
+          />
+          <div />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <TextField
+            label="Estimator email (digest recipient)"
+            value={data.estimator_email ?? ""}
+            onChange={(v) => setData({ ...data, estimator_email: v || null })}
+          />
+          <TextField
+            label="Owner email (CC + alerts)"
+            value={data.owner_email ?? ""}
+            onChange={(v) => setData({ ...data, owner_email: v || null })}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <NumberField
+            label="Doc retention — won (days)"
+            value={data.doc_retention_won_days}
+            onChange={(v) => setData({ ...data, doc_retention_won_days: v })}
+          />
+          <NumberField
+            label="Doc retention — lost (days)"
+            value={data.doc_retention_lost_days}
+            onChange={(v) => setData({ ...data, doc_retention_lost_days: v })}
+          />
+        </div>
       </div>
 
       <div className="flex items-center gap-3 pt-2">
@@ -181,6 +242,20 @@ function NumberField({ label, value, onChange }: { label: string; value: number;
         type="number"
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-white"
+      />
+    </div>
+  );
+}
+
+function TextField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{label}</label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-white"
       />
     </div>

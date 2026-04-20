@@ -48,20 +48,25 @@ export default async function TodayPage() {
     .eq("status", "bidding")
     .order("response_deadline", { ascending: true });
 
+  // QA-qualified — ready for estimator review
+  const { data: qaQualified } = await supabase
+    .from("opportunities")
+    .select("id, title, agency, score, response_deadline, dollar_min, dollar_max, qa_report, qa_needs_human_review")
+    .eq("status", "qa_qualified")
+    .order("updated_at", { ascending: false })
+    .limit(25);
+
+  // awaiting_qa count — tells operator how many opps are queued for Claude Code
+  const { count: awaitingQaCount } = await supabase
+    .from("opportunities")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "awaiting_qa");
+
   // New (unreviewed — should be 0 after morning cron, nonzero = cron found stuff)
   const { count: newCount } = await supabase
     .from("opportunities")
     .select("*", { count: "exact", head: true })
     .eq("status", "new");
-
-  // Recently passed (last 24 hours) — shows what the cron filtered out
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const { count: recentlyPassed } = await supabase
-    .from("opportunities")
-    .select("*", { count: "exact", head: true })
-    .eq("status", "passed")
-    .gte("updated_at", yesterday.toISOString());
 
   // Stats
   const { count: totalReviewing } = await supabase
@@ -100,7 +105,15 @@ export default async function TodayPage() {
       </div>
 
       {/* Quick stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-5 gap-3 mb-6">
+        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-center">
+          <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{qaQualified?.length ?? 0}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Qualified</p>
+        </div>
+        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-center">
+          <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{awaitingQaCount ?? 0}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Awaiting QA</p>
+        </div>
         <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-center">
           <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{totalReviewing ?? 0}</p>
           <p className="text-xs text-slate-500 dark:text-slate-400">Reviewing</p>
@@ -112,10 +125,6 @@ export default async function TodayPage() {
         <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-center">
           <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{totalWon ?? 0}</p>
           <p className="text-xs text-slate-500 dark:text-slate-400">Won</p>
-        </div>
-        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-center">
-          <p className="text-2xl font-bold text-slate-500">{recentlyPassed ?? 0}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Filtered (24h)</p>
         </div>
       </div>
 
@@ -132,6 +141,78 @@ export default async function TodayPage() {
             Review now →
           </Link>
         </div>
+      )}
+
+      {/* awaiting_qa operator prompt */}
+      {(awaitingQaCount ?? 0) > 0 && (
+        <div className="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4 mb-6">
+          <div className="flex items-center gap-2">
+            <span className="text-indigo-700 dark:text-indigo-300 text-lg font-bold">{awaitingQaCount}</span>
+            <span className="text-indigo-800 dark:text-indigo-200 text-sm font-medium">
+              opportunit{(awaitingQaCount ?? 0) === 1 ? "y" : "ies"} awaiting QA — run Claude Code
+            </span>
+          </div>
+          <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-1 font-mono">
+            node scripts/qa-prepare.js → Claude Code on scripts/qa-analyze.md → node scripts/qa-commit.js
+          </p>
+        </div>
+      )}
+
+      {/* QA qualified — ready for estimator */}
+      {(qaQualified?.length ?? 0) > 0 && (
+        <section className="mb-6">
+          <h3 className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-3">
+            Ready for Estimator ({qaQualified?.length})
+          </h3>
+          <div className="space-y-3">
+            {qaQualified?.map((opp) => {
+              const report = (opp.qa_report ?? null) as {
+                scope_summary?: string;
+                risk_flags?: string[];
+                steel_metals_estimated_value_usd?: number | null;
+                recommendation_reasoning?: string;
+              } | null;
+              const days = opp.response_deadline ? daysUntil(opp.response_deadline) : null;
+              const tag = days != null ? urgencyTag(days) : null;
+              return (
+                <Link
+                  key={opp.id}
+                  href={`/opportunity/${opp.id}`}
+                  className="block bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-900/50 rounded-lg p-4 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3 mb-1">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white flex-1">{opp.title}</p>
+                    {tag && (
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${tag.className}`}>
+                        {tag.label}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                    {opp.agency}
+                    {opp.response_deadline && ` · Due ${formatDeadline(opp.response_deadline)}`}
+                    {report?.steel_metals_estimated_value_usd != null &&
+                      ` · Metals ~$${report.steel_metals_estimated_value_usd.toLocaleString()}`}
+                  </p>
+                  {report?.scope_summary && (
+                    <p className="text-xs text-slate-700 dark:text-slate-300 line-clamp-2 mb-2">
+                      {report.scope_summary}
+                    </p>
+                  )}
+                  {(report?.risk_flags?.length ?? 0) > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {report?.risk_flags?.map((f) => (
+                        <span key={f} className="text-[10px] font-mono bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 rounded">
+                          {f}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {/* URGENT — deadlines within 7 days */}

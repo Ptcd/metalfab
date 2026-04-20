@@ -62,6 +62,12 @@ export async function PUT(request: NextRequest) {
     'dollar_max',
     'score_green',
     'score_yellow',
+    'qa_analysis_enabled',
+    'qa_min_score_threshold',
+    'estimator_email',
+    'owner_email',
+    'doc_retention_won_days',
+    'doc_retention_lost_days',
   ];
 
   const update: Record<string, unknown> = {};

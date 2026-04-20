@@ -1,30 +1,25 @@
-import { createServerClient } from '@supabase/ssr';
 import { NextRequest } from 'next/server';
 
+const SITE_ACCESS_COOKIE = 'tcb_access';
+
 /**
- * Extract the authenticated user from request cookies.
- * Returns the user object if authenticated, or null if not.
+ * Shared-password access check. Replaces the old per-user Supabase auth —
+ * the only gate is the SITE_ACCESS_CODE cookie set by /api/unlock.
+ *
+ * Returns a pseudo-user object when the site code cookie is valid, null
+ * otherwise. API routes treat null as 401.
+ *
+ * Cron endpoints don't use this — they check Authorization: Bearer directly.
  */
 export async function getAuthUser(request: NextRequest) {
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        // Server client in API routes is read-only for cookies
-        setAll() {},
-      },
-    }
-  );
-
-  const { data: { user }, error } = await supabase.auth.getUser();
-
-  if (error || !user) {
-    return null;
+  const expected = process.env.SITE_ACCESS_CODE;
+  if (!expected) {
+    // Gate disabled (e.g. local dev without env) — treat as authed.
+    return { id: 'local', role: 'site' };
   }
-
-  return user;
+  const cookie = request.cookies.get(SITE_ACCESS_COOKIE)?.value;
+  if (cookie === expected) {
+    return { id: 'site', role: 'site' };
+  }
+  return null;
 }

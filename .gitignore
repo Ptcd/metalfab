@@ -35,3 +35,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 scripts/debug-*.png
+
+# local QA queue (downloaded PDFs + reports, regenerated each run)
+/qa-queue/

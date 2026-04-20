@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/db/supabase';
 import { getAuthUser } from '@/lib/auth';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { purgeOpportunityDocuments } = require('../../../../lib/documents');
 
 export const dynamic = 'force-dynamic';
+
+const STATUSES_THAT_PURGE_ON_ENTRY = new Set(['passed', 'qa_rejected']);
 
 // GET /api/opportunities/[id]
 export async function GET(
@@ -89,6 +93,15 @@ export async function PATCH(
       old_value: current.status,
       new_value: body.status,
     });
+
+    // Purge documents immediately when the opp moves into a terminal reject state.
+    if (STATUSES_THAT_PURGE_ON_ENTRY.has(body.status)) {
+      try {
+        await purgeOpportunityDocuments(params.id);
+      } catch (e) {
+        console.error('purge after status change failed:', e);
+      }
+    }
   }
 
   if (body.notes && body.notes !== current.notes) {

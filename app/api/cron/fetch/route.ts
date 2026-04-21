@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runFetchPipeline } from '@/lib/fetchers';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { runFetchDocs } = require('../../../../scripts/fetch-docs');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { runFetchEmail } = require('../../../../scripts/fetch-email');
 
 export const maxDuration = 60;
 
@@ -28,6 +30,20 @@ async function runMorning(daysBack: number) {
   const fetchResult = await runFetchPipeline(daysBack);
   steps.push({ step: 'scrape', ms: Date.now() - scrapeStart, result: fetchResult });
 
+  // Inbound email — pull any bid notifications that landed in the AOL Bids folder
+  let emailResult: unknown = { skipped: true };
+  try {
+    const emailStart = Date.now();
+    emailResult = await runFetchEmail();
+    steps.push({ step: 'fetch-email', ms: Date.now() - emailStart, result: emailResult });
+  } catch (err) {
+    steps.push({
+      step: 'fetch-email',
+      ms: 0,
+      result: { error: err instanceof Error ? err.message : String(err) },
+    });
+  }
+
   let docsResult: unknown = { skipped: true };
   try {
     const docsStart = Date.now();
@@ -46,6 +62,7 @@ async function runMorning(daysBack: number) {
     total_ms: Date.now() - startedAt,
     steps,
     scrape: fetchResult,
+    email: emailResult,
     docs: docsResult,
   };
 }

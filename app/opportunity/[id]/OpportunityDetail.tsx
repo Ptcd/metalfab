@@ -185,17 +185,32 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
             Documents ({documents.length})
           </h3>
           <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg divide-y divide-slate-200 dark:divide-slate-700">
-            {documents.map((d) => (
-              <div key={d.storage_path} className="px-4 py-2 text-sm flex items-center justify-between">
-                <div>
-                  <p className="text-slate-900 dark:text-white">{d.filename}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {d.category} · {Math.round(d.file_size / 1024)} KB · {d.mime_type}
-                  </p>
+            {documents.map((d) => {
+              const viewUrl = `/api/documents/${d.storage_path}`;
+              const downloadUrl = `${viewUrl}?download=1`;
+              return (
+                <div key={d.storage_path} className="px-4 py-2 text-sm flex items-center justify-between gap-3">
+                  <a
+                    href={viewUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 min-w-0 group"
+                  >
+                    <p className="text-blue-600 dark:text-blue-400 group-hover:underline truncate">{d.filename}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {d.category} · {Math.round(d.file_size / 1024)} KB
+                    </p>
+                  </a>
+                  <a
+                    href={downloadUrl}
+                    className="text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 shrink-0"
+                    title="Download"
+                  >
+                    ↓
+                  </a>
                 </div>
-                <span className="text-xs text-slate-400 font-mono">{d.storage_path}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

@@ -54,12 +54,15 @@ async function loadEligible({ threshold, limit, only, opp }) {
     return res.json();
   }
 
-  const sel = 'id,title,source,source_url,sam_notice_id,status,score,documents,raw_data';
+  const sel = 'id,title,source,source_url,sam_notice_id,status,score,documents,raw_data,response_deadline';
   const statusFilter = 'status=in.(new,reviewing)';
   const scoreFilter = `score=gte.${threshold}`;
   const docsFilter = 'documents=eq.[]';
+  // Only fetch docs for opps whose deadline is still in the future (or unknown)
+  const nowIso = new Date().toISOString();
+  const deadlineFilter = `or=(response_deadline.is.null,response_deadline.gte.${nowIso})`;
   let url =
-    `${SUPABASE_URL}/rest/v1/opportunities?select=${sel}&${statusFilter}&${scoreFilter}&${docsFilter}&order=score.desc`;
+    `${SUPABASE_URL}/rest/v1/opportunities?select=${sel}&${statusFilter}&${scoreFilter}&${docsFilter}&${deadlineFilter}&order=score.desc`;
   if (only && only.length > 0) {
     url += `&source=in.(${only.join(',')})`;
   }

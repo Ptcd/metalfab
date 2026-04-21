@@ -52,7 +52,10 @@ async function loadConfig() {
 
 async function loadQualified() {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const url = `${SUPABASE_URL}/rest/v1/opportunities?status=eq.qa_qualified&updated_at=gte.${since}&select=*&order=updated_at.desc`;
+  const nowIso = new Date().toISOString();
+  // Skip past-deadline opps — no point emailing Gohar something he can't bid on
+  const deadlineFilter = `or=(response_deadline.is.null,response_deadline.gte.${nowIso})`;
+  const url = `${SUPABASE_URL}/rest/v1/opportunities?status=eq.qa_qualified&updated_at=gte.${since}&${deadlineFilter}&select=*&order=updated_at.desc`;
   const res = await fetch(url, { headers: headers() });
   return res.json();
 }

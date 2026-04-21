@@ -56,6 +56,8 @@ export function PipelineTable({ opportunities, count, greenThreshold, yellowThre
   const router = useRouter();
   const searchParams = useSearchParams();
   const [showAdd, setShowAdd] = useState(false);
+  const [dropFiles, setDropFiles] = useState<File[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   function updateFilter(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -67,8 +69,37 @@ export function PipelineTable({ opportunities, count, greenThreshold, yellowThre
     router.push(`/dashboard?${params.toString()}`);
   }
 
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length === 0) return;
+    // Guess title from the first file's name (strip extension, replace _ with spaces)
+    const firstName = files[0].name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+    setDropFiles(files);
+    setShowAdd(true);
+    // Stash the guessed title in a module-level var via ref? — the modal reads it via prop
+    (window as unknown as { __dropInitial?: { title: string; droppedFiles: File[] } }).__dropInitial = {
+      title: firstName,
+      droppedFiles: files,
+    };
+  }
+
   return (
-    <>
+    <div
+      onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={handleDrop}
+      className="relative"
+    >
+      {isDragOver && (
+        <div className="fixed inset-0 z-40 pointer-events-none bg-blue-500/10 border-4 border-dashed border-blue-500 flex items-center justify-center">
+          <p className="text-lg font-semibold text-blue-700 dark:text-blue-300 bg-white dark:bg-slate-800 px-6 py-3 rounded-lg shadow">
+            Drop files to create a new opportunity with attachments
+          </p>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <select
@@ -160,7 +191,20 @@ export function PipelineTable({ opportunities, count, greenThreshold, yellowThre
         </table>
       </div>
 
-      {showAdd && <AddOpportunityModal onClose={() => setShowAdd(false)} />}
-    </>
+      {showAdd && (
+        <AddOpportunityModal
+          onClose={() => {
+            setShowAdd(false);
+            setDropFiles([]);
+            delete (window as unknown as { __dropInitial?: unknown }).__dropInitial;
+          }}
+          initial={
+            dropFiles.length > 0
+              ? (window as unknown as { __dropInitial?: { title: string; droppedFiles: File[] } }).__dropInitial
+              : undefined
+          }
+        />
+      )}
+    </div>
   );
 }

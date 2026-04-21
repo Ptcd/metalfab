@@ -9,7 +9,13 @@
       }
     },
     {
-      "files": ["app/api/cron/*/route.ts", "app/api/opportunities/*/route.ts"],
+      "files": [
+        "app/api/cron/*/route.ts",
+        "app/api/opportunities/*/route.ts",
+        "app/api/opportunities/*/documents/route.ts",
+        "app/api/opportunities/*/documents/*/route.ts",
+        "app/api/inbound/*/route.ts"
+      ],
       "rules": {
         "@typescript-eslint/no-require-imports": "off"
       }

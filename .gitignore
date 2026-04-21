@@ -38,3 +38,4 @@ scripts/debug-*.png
 
 # local QA queue (downloaded PDFs + reports, regenerated each run)
 /qa-queue/
+.claude/settings.local.json

@@ -19,8 +19,8 @@ function NavLink({ href, children }: { href: string; children: React.ReactNode }
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  // On the login page, render children without the sidebar wrapper
-  if (pathname === "/login") {
+  // On the login/unlock pages, render children without the sidebar wrapper
+  if (pathname === "/login" || pathname === "/unlock") {
     return <>{children}</>;
   }
 
@@ -35,6 +35,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="flex-1 p-3 space-y-1">
           <NavLink href="/today">Today</NavLink>
           <NavLink href="/dashboard">Pipeline</NavLink>
+          <NavLink href="/customers">Customers</NavLink>
           <NavLink href="/activity">Activity</NavLink>
           <NavLink href="/config">Config</NavLink>
         </nav>

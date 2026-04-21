@@ -113,10 +113,19 @@ export async function POST(request: NextRequest) {
     contact_email: body.contact_email ?? null,
     source_url: body.source_url ?? null,
     source: body.source ?? 'manual',
+    source_channel: body.source_channel ?? 'manual',
+    added_by: body.added_by ?? null,
+    added_via: body.added_via ?? 'quick-add',
+    referrer: body.referrer ?? null,
+    customer_id: body.customer_id ?? null,
+    estimated_value: body.estimated_value ?? null,
+    confidence: body.confidence ?? null,
     notes: body.notes ?? null,
     score,
     score_signals: signals,
-    status: 'new' as const,
+    // Manual adds default to 'reviewing' — a human already vetted it. The
+    // client may override to 'awaiting_qa' when docs are attached.
+    status: body.status ?? 'reviewing',
   };
 
   const { data, error } = await supabase

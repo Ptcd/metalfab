@@ -64,7 +64,11 @@ export async function PATCH(
   }
 
   // Build update object (only allowed fields)
-  const allowed = ['status', 'notes', 'title', 'description', 'agency', 'dollar_min', 'dollar_max', 'response_deadline'];
+  const allowed = [
+    'status', 'notes', 'title', 'description', 'agency',
+    'dollar_min', 'dollar_max', 'response_deadline',
+    'estimated_value', 'confidence', 'referrer', 'customer_id', 'added_by',
+  ];
   const update: Record<string, unknown> = {};
   for (const key of allowed) {
     if (key in body) update[key] = body[key];

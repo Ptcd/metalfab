@@ -9,12 +9,52 @@ export type OpportunityStatus =
   | 'qa_qualified'
   | 'qa_rejected';
 
+// Inbound categories come off the GC's bid package; internal categories are
+// artifacts TCB produces (shop drawings, proposals, takeoffs, jobsite photos).
 export type DocumentCategory =
+  // inbound (from GC / agency)
   | 'specification'
   | 'drawing'
   | 'addendum'
   | 'general'
-  | 'form';
+  | 'form'
+  // internal (TCB produced)
+  | 'shop_drawing'
+  | 'proposal'
+  | 'takeoff'
+  | 'estimate'
+  | 'rfi'
+  | 'rfi_response'
+  | 'submittal'
+  | 'photo'
+  | 'contract'
+  | 'internal';
+
+export const DOCUMENT_CATEGORY_LABELS: Record<DocumentCategory, string> = {
+  specification: 'Specification',
+  drawing: 'Drawing',
+  addendum: 'Addendum',
+  general: 'General',
+  form: 'Form',
+  shop_drawing: 'Shop Drawing',
+  proposal: 'Proposal',
+  takeoff: 'Takeoff',
+  estimate: 'Estimate',
+  rfi: 'RFI',
+  rfi_response: 'RFI Response',
+  submittal: 'Submittal',
+  photo: 'Photo',
+  contract: 'Contract',
+  internal: 'Internal',
+};
+
+export const INBOUND_CATEGORIES: DocumentCategory[] = [
+  'specification', 'drawing', 'addendum', 'general', 'form',
+];
+export const INTERNAL_CATEGORIES: DocumentCategory[] = [
+  'shop_drawing', 'proposal', 'takeoff', 'estimate',
+  'rfi', 'rfi_response', 'submittal', 'photo', 'contract', 'internal',
+];
 
 export interface BidDocument {
   filename: string;
@@ -23,6 +63,10 @@ export interface BidDocument {
   file_size: number;
   mime_type: string;
   category: DocumentCategory;
+  // Optional — present on manually uploaded artifacts
+  uploaded_by?: string | null;
+  description?: string | null;
+  version?: number;
 }
 
 export type QaRecommendation = 'bid' | 'pass' | 'human_review_needed';
@@ -54,6 +98,33 @@ export interface QaReport {
   analyzed_at: string;
 }
 
+export type SourceChannel = 'scraper' | 'email' | 'manual' | 'api' | 'referral';
+export type AddedVia = 'scraper' | 'quick-add' | 'pdf-drop' | 'email-forward' | 'api' | 'email-ingest';
+export type Confidence = 'hot' | 'warm' | 'cold';
+
+export interface Customer {
+  id: string;
+  name: string;
+  company: string | null;
+  email: string | null;
+  phone: string | null;
+  role: string | null;
+  notes: string | null;
+  first_seen: string;
+  last_contact: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomerInsert {
+  name: string;
+  company?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  role?: string | null;
+  notes?: string | null;
+}
+
 export interface Opportunity {
   id: string;
   sam_notice_id: string | null;
@@ -72,6 +143,13 @@ export interface Opportunity {
   source_url: string | null;
   place_of_performance: string | null;
   source: string;
+  source_channel: SourceChannel;
+  added_by: string | null;
+  added_via: AddedVia | null;
+  referrer: string | null;
+  customer_id: string | null;
+  estimated_value: number | null;
+  confidence: Confidence | null;
   raw_data: Record<string, unknown> | null;
   score: number;
   score_signals: ScoreSignal[];
@@ -108,8 +186,16 @@ export interface OpportunityInsert {
   source_url?: string | null;
   place_of_performance?: string | null;
   source?: string;
+  source_channel?: SourceChannel;
+  added_by?: string | null;
+  added_via?: AddedVia | null;
+  referrer?: string | null;
+  customer_id?: string | null;
+  estimated_value?: number | null;
+  confidence?: Confidence | null;
   raw_data?: Record<string, unknown> | null;
   notes?: string | null;
+  status?: OpportunityStatus;
 }
 
 export interface OpportunityUpdate {

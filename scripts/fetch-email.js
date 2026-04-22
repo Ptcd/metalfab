@@ -1,23 +1,26 @@
 #!/usr/bin/env node
 /**
- * fetch-email.js — IMAP poller that turns inbound bid emails into opportunities.
+ * fetch-email.js — IMAP poller over the AOL INBOX.
  *
- * Connects to tcbmetalworks@aol.com via IMAP, pulls UNSEEN messages from the
- * configured folder (default "Bids", falling back to INBOX), parses each,
- * saves attachments into Supabase Storage, creates an opportunity record,
- * marks the email as \Seen, then disconnects.
+ * For every UNSEEN message, classify as:
+ *   - 'bid'     → create opportunity + save attachments + mark \Seen
+ *   - 'spam'    → move to Trash (AOL's trash folder)
+ *   - 'unclear' → just mark \Seen (safe middle ground, keeps noise out of CRM)
  *
- * Env required:
- *   AOL_USER                (e.g. tcbmetalworks@aol.com)
- *   AOL_APP_PASSWORD        (AOL app-specific password, no spaces)
- *   AOL_INBOX_FOLDER        (optional, default "Bids")
- *   SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_SUPABASE_URL
+ * The classifier is rule-based: known bid-portal senders and construction
+ * keywords promote to 'bid'; known newsletter/promo senders and unsubscribe-
+ * only content demote to 'spam'; everything else stays 'unclear' so we never
+ * auto-trash something we shouldn't.
+ *
+ * Env:
+ *   AOL_USER, AOL_APP_PASSWORD, AOL_INBOX_FOLDER (default INBOX),
+ *   AOL_TRASH_FOLDER (default "Trash"), AOL_SPAM_AGGRESSIVE (default false)
  *
  * Usage:
  *   node scripts/fetch-email.js
- *   node scripts/fetch-email.js --dry-run
- *   node scripts/fetch-email.js --folder=INBOX
- *   node scripts/fetch-email.js --limit=5
+ *   node scripts/fetch-email.js --dry-run            (classify + print, no changes)
+ *   node scripts/fetch-email.js --folder=Bulk --limit=50
+ *   node scripts/fetch-email.js --no-trash           (create bids, mark seen, never trash)
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env.local') });
@@ -38,7 +41,8 @@ const AOL_USER = process.env.AOL_USER;
 const AOL_PASS = (process.env.AOL_APP_PASSWORD || '').replace(/\s+/g, '');
 const AOL_HOST = process.env.AOL_IMAP_HOST || 'imap.aol.com';
 const AOL_PORT = parseInt(process.env.AOL_IMAP_PORT || '993', 10);
-const DEFAULT_FOLDER = process.env.AOL_INBOX_FOLDER || 'Bids';
+const DEFAULT_FOLDER = process.env.AOL_INBOX_FOLDER || 'INBOX';
+const TRASH_FOLDER = process.env.AOL_TRASH_FOLDER || 'Trash';
 
 function headers() {
   return {
@@ -48,14 +52,15 @@ function headers() {
   };
 }
 
-// Known bid-portal sender patterns. When a sender doesn't match, the opp
-// still gets created with source='email' but without a recognized portal.
+// ---- classification -----------------------------------------------------
+
+// Known bid-portal sender patterns. A match on any of these is a hard 'bid'.
 const SENDER_PATTERNS = [
-  { re: /bidnetdirect|bidnet/i, source: 'email-bidnet', agency: 'BidNet Direct' },
+  { re: /bidnetdirect|bidnet|sovra\.com/i, source: 'email-bidnet', agency: 'BidNet Direct' },
   { re: /demandstar/i, source: 'email-demandstar', agency: 'DemandStar' },
   { re: /buildingconnected|autodesk/i, source: 'email-buildingconnected', agency: 'BuildingConnected' },
   { re: /panteratools|cullenbids|cullen/i, source: 'email-cullen', agency: 'JP Cullen' },
-  { re: /cdsmith/i, source: 'email-cdsmith', agency: 'CD Smith' },
+  { re: /cdsmith|reproconnect/i, source: 'email-cdsmith', agency: 'CD Smith / ReproConnect' },
   { re: /stenstrom/i, source: 'email-stenstrom', agency: 'Stenstrom' },
   { re: /scherrer/i, source: 'email-scherrer', agency: 'Scherrer' },
   { re: /stevens/i, source: 'email-stevens', agency: 'Stevens Construction' },
@@ -64,7 +69,62 @@ const SENDER_PATTERNS = [
   { re: /sam\.gov|gsa|sam-noreply/i, source: 'email-samgov', agency: 'SAM.gov' },
   { re: /milwaukee\.gov|cityofmilwaukee/i, source: 'email-milwaukee', agency: 'City of Milwaukee' },
   { re: /racinecounty|racine\.gov/i, source: 'email-racine', agency: 'Racine County' },
+  { re: /procore/i, source: 'email-procore', agency: 'Procore' },
+  { re: /isqft|constructconnect/i, source: 'email-constructconnect', agency: 'ConstructConnect' },
+  { re: /smartbidnet/i, source: 'email-smartbidnet', agency: 'SmartBidNet' },
+  { re: /plan\.?room|planswift|blueprintbox/i, source: 'email-planroom', agency: 'Plan Room' },
+  { re: /onvia|govwin/i, source: 'email-govwin', agency: 'GovWin' },
+  { re: /kraemerbrothers/i, source: 'email-kraemer', agency: 'Kraemer Brothers' },
+  { re: /copperrockconstruction/i, source: 'email-copperrock', agency: 'Copper Rock Construction' },
 ];
+
+// Senders we should trash outright — promotions, newsletters, account-only mail
+// that can never be a bid opportunity. Keep this list tight; false positives
+// cost us real leads.
+const SPAM_SENDER_PATTERNS = [
+  /@aol\.com$/i,                           // AOL system emails (tips, deals)
+  /constantcontact|mailchimp|sendgrid\.net|sendgrid\.com|aweber|substack/i,
+  /newsletters?@|marketing@|promo@|promotions@|deals@|offers@/i,
+  /linkedin\.com|facebook(mail|)?\.com|instagram\.com|twitter\.com|x\.com/i,
+  /googleads|google\.com\/ads|adwords/i,
+  /survey|surveymonkey|typeform/i,
+  /homeadvisor|angi\.com|thumbtack/i,      // consumer leads, not commercial bids
+  /yelp\.com/i,
+  /groupon|livingsocial/i,
+  /amazon\.com.*shipment|order@amazon|auto-confirm@amazon/i,
+  /ebay\.com|paypal\.com.*receipt/i,
+  /dropbox\.com|docusign\.(?!.*bid)/i,     // generic notifications (filtered)
+];
+
+// Subject patterns that signal a real bid opportunity.
+const BID_SUBJECT_PATTERNS = [
+  /invitation\s+to\s+(bid|quote)/i,
+  /\brfp\b|\brfq\b|\bitb\b|\brfi\b/i,
+  /request\s+for\s+(proposal|quotation|quote|information)/i,
+  /solicitation/i,
+  /bid\s+(invitation|opportunity|notice|posted|alert)/i,
+  /new\s+project\s+posted/i,
+  /plan\s+room|planroom/i,
+  /addend(um|a)/i,
+  /procurement/i,
+  /subcontract\s+opportunity/i,
+  /tender|prequalif/i,
+];
+
+// Subject patterns that are noise regardless of sender.
+const SPAM_SUBJECT_PATTERNS = [
+  /\boff\s+today\b|\bsave\s+\$?\d+/i,
+  /flash\s+sale|limited\s+time|expires\s+(today|tomorrow)/i,
+  /unsubscribe|opt\s+out/i,
+  /password\s+reset|verify\s+your\s+email|login\s+code|otp|one[-\s]?time\s+password/i,
+  /your\s+order|shipping\s+confirmation|shipment\s+arrived|delivered/i,
+  /statement\s+available|invoice\s+#\d+/i,
+  /newsletter|weekly\s+digest|monthly\s+digest/i,
+];
+
+// Construction/metals keywords — if subject or early body mentions these,
+// push toward 'bid' even if sender is unknown.
+const CONSTRUCTION_KEYWORDS = /\b(bid|proposal|subcontract|construction|steel|metal|fabric|railing|handrail|stair|fence|canopy|weld|shop\s+drawing|takeoff|prequalif|general\s+contractor|\bgc\b)\b/i;
 
 function classifySender(fromAddress) {
   const addr = (fromAddress || '').toLowerCase();
@@ -74,11 +134,64 @@ function classifySender(fromAddress) {
   return { source: 'email', agency: null };
 }
 
+function classifyEmail(parsed, fromAddr) {
+  const subject = parsed.subject || '';
+  const bodyHead = (parsed.text || parsed.html || '').slice(0, 2000);
+  const haystack = `${subject} ${bodyHead}`;
+
+  // 1. Known bid portal → always bid
+  for (const p of SENDER_PATTERNS) {
+    if (p.re.test(fromAddr)) {
+      return { verdict: 'bid', reason: 'known_portal', matched: p.agency };
+    }
+  }
+
+  // 2. Known spam senders → always spam
+  for (const re of SPAM_SENDER_PATTERNS) {
+    if (re.test(fromAddr)) {
+      return { verdict: 'spam', reason: 'spam_sender' };
+    }
+  }
+
+  // 3. Spam subject → spam (no false-positive risk if the user never reads
+  //    those subjects as bids)
+  for (const re of SPAM_SUBJECT_PATTERNS) {
+    if (re.test(subject)) {
+      return { verdict: 'spam', reason: 'spam_subject' };
+    }
+  }
+
+  // 4. Subject explicitly mentions a bid term → bid
+  for (const re of BID_SUBJECT_PATTERNS) {
+    if (re.test(haystack)) {
+      return { verdict: 'bid', reason: 'bid_keyword' };
+    }
+  }
+
+  // 5. Construction/metals keyword in subject or head → bid (looser signal)
+  if (CONSTRUCTION_KEYWORDS.test(subject)) {
+    return { verdict: 'bid', reason: 'construction_subject' };
+  }
+
+  // 6. Attachment-heavy from a gov/edu/contractor-shaped domain → bid
+  const atts = (parsed.attachments || []).filter((a) => (a.size || 0) > 1000);
+  const domain = (fromAddr.split('@')[1] || '').toLowerCase();
+  if (atts.length >= 2 && /(\.gov|\.us|\.edu|construction|builders|contracting|engineers?|architects?)/i.test(domain)) {
+    return { verdict: 'bid', reason: 'attachments_from_industry_domain' };
+  }
+
+  // 7. Everything else — leave it alone
+  return { verdict: 'unclear', reason: 'no_signal' };
+}
+
+// ---- arg parsing --------------------------------------------------------
+
 function parseArgs() {
   const args = process.argv.slice(2);
-  const out = { dryRun: false, folder: null, limit: null };
+  const out = { dryRun: false, folder: null, limit: null, noTrash: false };
   for (const a of args) {
     if (a === '--dry-run') out.dryRun = true;
+    if (a === '--no-trash') out.noTrash = true;
     const m = a.match(/^--(folder|limit)=(.+)$/);
     if (!m) continue;
     if (m[1] === 'folder') out.folder = m[2];
@@ -87,8 +200,9 @@ function parseArgs() {
   return out;
 }
 
+// ---- Supabase helpers ---------------------------------------------------
+
 async function opportunityExists(messageId) {
-  // Use messageId as sam_notice_id for email opps so the unique constraint dedupes.
   const url = `${SUPABASE_URL}/rest/v1/opportunities?sam_notice_id=eq.${encodeURIComponent(messageId)}&select=id`;
   const res = await fetch(url, { headers: headers() });
   const arr = await res.json();
@@ -110,10 +224,6 @@ async function insertOpportunity(opp) {
   return arr[0];
 }
 
-/**
- * Guess a response deadline from the email body. Very dumb heuristic —
- * looks for phrases like "due" / "bid date" / "response deadline" followed by a date.
- */
 function guessDeadline(text) {
   if (!text) return null;
   const snippet = text.slice(0, 4000);
@@ -131,7 +241,9 @@ function guessDeadline(text) {
   return null;
 }
 
-async function processEmail(parsed, uid, { dryRun }) {
+// ---- per-email processing ----------------------------------------------
+
+async function createBidOpportunity(parsed, uid) {
   const messageId = parsed.messageId || `email-${uid}`;
   if (await opportunityExists(messageId)) {
     return { skipped: true, reason: 'duplicate' };
@@ -153,14 +265,12 @@ async function processEmail(parsed, uid, { dryRun }) {
 
   const deadline = guessDeadline(bodyText || bodyHtml);
 
-  if (dryRun) {
-    return { dryRun: true, subject, source, fromAddr, deadline, attachments: parsed.attachments?.length || 0 };
-  }
-
   const opp = {
     sam_notice_id: messageId,
     title: `[email] ${subject}`,
     source,
+    source_channel: 'email',
+    added_via: 'email-ingest',
     status: 'new',
     agency: agency || fromName || null,
     response_deadline: deadline,
@@ -181,17 +291,13 @@ async function processEmail(parsed, uid, { dryRun }) {
   const inserted = await insertOpportunity(opp);
   const oppId = inserted.id;
 
-  // Handle attachments
   const documents = [];
   const atts = parsed.attachments || [];
   const tmpDir = path.join(os.tmpdir(), `email-${uid}-${Date.now()}`);
   fs.mkdirSync(tmpDir, { recursive: true });
   for (const a of atts.slice(0, 10)) {
     if (!a.content || a.content.length === 0) continue;
-    if (a.contentType?.startsWith('image/') && a.content.length < 10_000) {
-      // Skip tiny inline images (email signature logos, tracking pixels)
-      continue;
-    }
+    if (a.contentType?.startsWith('image/') && a.content.length < 10_000) continue;
     const filename = sanitizeFilename(a.filename || `attachment-${documents.length + 1}`);
     const localPath = path.join(tmpDir, filename);
     fs.writeFileSync(localPath, a.content);
@@ -225,6 +331,8 @@ async function processEmail(parsed, uid, { dryRun }) {
   return { ok: true, oppId, subject, source, attachments: documents.length };
 }
 
+// ---- main ---------------------------------------------------------------
+
 async function run() {
   if (!AOL_USER || !AOL_PASS) {
     console.error('AOL_USER or AOL_APP_PASSWORD not set — aborting.');
@@ -233,7 +341,7 @@ async function run() {
 
   const args = parseArgs();
   const folder = args.folder || DEFAULT_FOLDER;
-  const run = await startRun('scrape', `fetch-email:${folder}`);
+  const runRow = await startRun('scrape', `fetch-email:${folder}`);
 
   const client = new ImapFlow({
     host: AOL_HOST,
@@ -241,16 +349,20 @@ async function run() {
     secure: true,
     auth: { user: AOL_USER, pass: AOL_PASS },
     logger: false,
+    connectTimeout: 15000,
+    socketTimeout: 60000,
+  });
+  // AOL drops the connection occasionally on long sessions. Swallow the
+  // error event so it doesn't crash the whole run — the loop below handles
+  // per-email failures on its own.
+  client.on('error', (err) => {
+    console.log(`   (imap warning: ${err.message?.slice(0, 80)})`);
   });
 
-  let processed = 0;
-  let created = 0;
-  let skipped = 0;
-  let errors = 0;
+  const totals = { processed: 0, created: 0, trashed: 0, unclear: 0, dupes: 0, errors: 0 };
 
   try {
     await client.connect();
-    // Try the requested folder, fall back to INBOX if it doesn't exist
     let mailbox;
     try {
       mailbox = await client.mailboxOpen(folder);
@@ -258,66 +370,90 @@ async function run() {
       console.log(`Folder "${folder}" not found, falling back to INBOX.`);
       mailbox = await client.mailboxOpen('INBOX');
     }
-    console.log(`Connected. ${mailbox.exists} messages in ${mailbox.path}, ${mailbox.unseen || 0} unseen.`);
+    console.log(`Connected. ${mailbox.exists} messages in ${mailbox.path}.`);
 
     const uids = await client.search({ seen: false }, { uid: true });
     if (uids.length === 0) {
       console.log('No unseen emails — done.');
-      await finishRun(run, { status: 'success', opportunities_processed: 0 });
-      return { ok: true, processed: 0 };
+      await finishRun(runRow, { status: 'success', opportunities_processed: 0 });
+      return { ok: true, ...totals };
     }
-    const toProcess = args.limit ? uids.slice(0, args.limit) : uids;
-    console.log(`Processing ${toProcess.length} of ${uids.length} unseen email(s)\n`);
+    const toProcess = args.limit ? uids.slice(-args.limit) : uids;
+    console.log(`Processing ${toProcess.length} of ${uids.length} unseen.\n`);
 
     for (const uid of toProcess) {
-      processed++;
+      totals.processed++;
       try {
-        const msg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
-        if (!msg || !msg.source) {
-          console.log(`  [${uid}] no source body, skipping`);
+        const msg = await client.fetchOne(uid, { source: true }, { uid: true });
+        if (!msg || !msg.source) continue;
+        const parsed = await simpleParser(msg.source);
+        const fromAddr = (parsed.from?.value?.[0]?.address || '').toLowerCase();
+        const subject = (parsed.subject || '(no subject)').slice(0, 80);
+        const { verdict, reason } = classifyEmail(parsed, fromAddr);
+
+        console.log(`  [${uid}] ${verdict.padEnd(7)} ← ${fromAddr.slice(0, 32).padEnd(32)} | ${subject}`);
+
+        if (args.dryRun) {
+          console.log(`         reason=${reason}`);
           continue;
         }
-        const parsed = await simpleParser(msg.source);
-        const from = parsed.from?.value?.[0]?.address || '';
-        const subject = parsed.subject || '(no subject)';
-        console.log(`  [${uid}] ${from} — ${subject.slice(0, 80)}`);
 
-        const result = await processEmail(parsed, uid, args);
-        if (result.skipped) {
-          skipped++;
-          console.log(`       ↳ skipped (${result.reason})`);
-        } else if (result.dryRun) {
-          console.log(`       ↳ [dry-run] source=${result.source} deadline=${result.deadline || '—'} atts=${result.attachments}`);
-        } else {
-          created++;
-          console.log(`       ↳ created opp ${result.oppId.slice(0, 8)} (${result.attachments} attachments)`);
-          if (!args.dryRun) {
-            await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
+        if (verdict === 'bid') {
+          const result = await createBidOpportunity(parsed, uid);
+          if (result.skipped) {
+            totals.dupes++;
+            console.log(`         ↳ dup, marking seen`);
+          } else {
+            totals.created++;
+            console.log(`         ↳ opp ${result.oppId.slice(0, 8)} (${result.attachments} atts)`);
           }
+          await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
+        } else if (verdict === 'spam') {
+          if (args.noTrash) {
+            await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
+          } else {
+            try {
+              await client.messageMove(uid, TRASH_FOLDER, { uid: true });
+              totals.trashed++;
+              console.log(`         ↳ moved to ${TRASH_FOLDER} (${reason})`);
+            } catch (e) {
+              // If move fails (folder name mismatch), fall back to marking seen
+              console.log(`         ⚠️  move to trash failed: ${e.message.slice(0, 80)}`);
+              await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
+            }
+          }
+        } else {
+          // unclear — leave in inbox but mark seen so we don't reprocess
+          totals.unclear++;
+          await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
         }
       } catch (e) {
-        errors++;
-        console.log(`       ❌ error: ${e.message.slice(0, 140)}`);
-        await addError(run, 'process', `uid=${uid}: ${e.message}`);
+        totals.errors++;
+        console.log(`         ❌ ${e.message.slice(0, 140)}`);
+        await addError(runRow, 'process', `uid=${uid}: ${e.message}`);
       }
     }
 
     await client.logout();
   } catch (e) {
     console.error('Fatal IMAP error:', e.message);
-    await addError(run, 'imap', e.message);
-    await finishRun(run, { status: 'failed' });
+    await addError(runRow, 'imap', e.message);
+    await finishRun(runRow, { status: 'failed' });
     return { ok: false, error: e.message };
   }
 
-  await addStep(run, 'email-poll-done', { processed, created, skipped, errors });
-  await finishRun(run, {
-    status: errors === 0 ? 'success' : 'partial',
-    opportunities_processed: created,
+  await addStep(runRow, 'email-poll-done', totals);
+  await finishRun(runRow, {
+    status: totals.errors === 0 ? 'success' : 'partial',
+    opportunities_processed: totals.created,
+    notes: `inbox sweep: ${totals.created} bids, ${totals.trashed} trashed, ${totals.unclear} unclear, ${totals.dupes} dupes`,
   });
 
-  console.log(`\n✅ ${created} new opps, ${skipped} dupes, ${errors} errors from ${processed} emails`);
-  return { ok: true, processed, created, skipped, errors };
+  console.log(
+    `\n✅ ${totals.processed} scanned — ${totals.created} opps created, ` +
+    `${totals.trashed} trashed, ${totals.unclear} left as-is, ${totals.dupes} dupes, ${totals.errors} errors`
+  );
+  return { ok: true, ...totals };
 }
 
 module.exports = { runFetchEmail: run };

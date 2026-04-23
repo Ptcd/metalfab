@@ -19,6 +19,20 @@ interface OppSummary {
 
 function fmtDate(d: string | null) {
   if (!d) return "—";
+  // `first_seen` and `last_contact` are stored as Postgres DATE (no time or
+  // zone). `new Date("2026-04-23")` parses as UTC midnight, which renders as
+  // Apr 22 in US Central. Parse the parts manually so the date we show
+  // matches the date that was stored.
+  const ymd = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymd) {
+    const [, y, m, day] = ymd;
+    const local = new Date(Number(y), Number(m) - 1, Number(day));
+    return local.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
   return new Date(d).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -237,7 +251,11 @@ export function CustomerDetail({
           customer={c}
           onClose={() => setLoggingContact(false)}
           onSave={async (lineToAppend) => {
-            const today = new Date().toISOString().split("T")[0];
+            // Build today's date from local time components — doing
+            // toISOString().split("T")[0] rolls into tomorrow for anyone
+            // in CDT after 7pm, which a VA will rightly find confusing.
+            const now = new Date();
+            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
             const newNotes = [lineToAppend, c.notes || ""].filter(Boolean).join("\n\n");
             const ok = await save({
               notes: newNotes,
@@ -359,7 +377,8 @@ function LogContactModal({
     e.preventDefault();
     if (!summary.trim()) return;
     setSaving(true);
-    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const line = `${today} — ${kind}: ${summary.trim()}`;
     await onSave(line);
     setSaving(false);

@@ -94,13 +94,15 @@ export default async function TodayPage() {
 
   const now = new Date();
 
-  // Split reviewing into urgent (<=7d) and upcoming
+  // Split reviewing into urgent (due in the next 7 days) and everything else.
+  // Everything-else must include both "deadline further out / unknown" AND
+  // "deadline already past" — a human put these in reviewing on purpose,
+  // and we don't want 28 expired opps to silently disappear from the queue.
   const urgent = (reviewing ?? []).filter(
     (o) => o.response_deadline && daysUntil(o.response_deadline) <= 7 && daysUntil(o.response_deadline) > 0
   );
-  const upcoming = (reviewing ?? []).filter(
-    (o) => !o.response_deadline || daysUntil(o.response_deadline) > 7
-  );
+  const urgentIds = new Set(urgent.map((o) => o.id));
+  const upcoming = (reviewing ?? []).filter((o) => !urgentIds.has(o.id));
 
   return (
     <div className="max-w-3xl">

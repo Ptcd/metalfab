@@ -185,26 +185,100 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
       + dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
   }
 
-  // Scraped descriptions from SAM.gov/BidNet etc come through as one wall
-  // of text. Inject line breaks before common ALL-CAPS section labels so a
-  // VA can actually scan them.
+  // Scraped descriptions from SAM.gov / BidNet come through as one wall of
+  // text with embedded HTML. Strip the markup, then insert line breaks
+  // before a fixed whitelist of known section labels. We avoid open-ended
+  // ALL-CAPS matching because it false-positives on acronyms (UEI, SAM,
+  // NAICS) and on labels that include punctuation (SOLICITATION / NOTICE).
   function prettifyDescription(raw: string | null | undefined): string {
     if (!raw) return "";
-    return raw
-      // Replace <br/> tags left from HTML with newlines
+
+    // Known labels — all must start on their own line. Most common first.
+    // Use alternation grouped by length (longest first, so "SOLICITATION
+    // NUMBER" wins over "SOLICITATION"). Each label ends in a colon.
+    const LABELS = [
+      "SOLICITATION NOTICE",
+      "SOLICITATION NUMBER",
+      "SOLICITATION / NOTICE",
+      "SOLICITATION",
+      "PROJECT MAGNITUDE",
+      "PROJECT TITLE",
+      "PROJECT NUMBER",
+      "PROJECT DESCRIPTION",
+      "TYPE OF CONTRACT",
+      "TYPE OF AWARD",
+      "NAICS CODE CLASSIFICATION and SET ASIDE",
+      "NAICS CODE",
+      "NAICS",
+      "EVALUATION FACTORS",
+      "EVALUATION CRITERIA",
+      "SET ASIDE",
+      "SITE VISIT",
+      "PRE-BID MEETING",
+      "PRE BID MEETING",
+      "POINT OF CONTACT",
+      "POINTS OF CONTACT",
+      "POC",
+      "REGISTRATIONS",
+      "BID DUE DATE",
+      "RESPONSE DEADLINE",
+      "QUESTIONS DUE",
+      "QUESTIONS DEADLINE",
+      "DESCRIPTION OF WORK",
+      "STATEMENT OF WORK",
+      "SCOPE OF WORK",
+      "SCOPE",
+      "PERIOD OF PERFORMANCE",
+      "PLACE OF PERFORMANCE",
+      "DELIVERY",
+      "SHIPPING",
+      "WAGE DETERMINATION",
+      "CONSTRUCTION MAGNITUDE",
+      "PRODUCT SERVICE CODE",
+      "SMALL BUSINESS SIZE STANDARD",
+      "IMPORTANT DATES",
+      "IMPORTANT DATES & DEADLINES",
+      "NOTICE TO ALL OFFERORS",
+      "NOTICE TO CONTRACTORS",
+    ];
+    // Amendment labels, numbered. Matched separately.
+    const amendmentRe = /\bAMENDMENT\s*(?:NO\.?\s*)?\d+:/g;
+
+    // Escape regex metacharacters in label strings and join alternation
+    const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Longer first so regex engine chooses specific over generic
+    const sortedLabels = LABELS.slice().sort((a, b) => b.length - a.length);
+    const labelPattern = new RegExp(
+      `([^\\n])\\s*(${sortedLabels.map(escape).join("|")}):`,
+      "g"
+    );
+
+    const out = raw
       .replace(/<br\s*\/?>/gi, "\n")
-      // Strip remaining tags
       .replace(/<[^>]+>/g, "")
-      // Normalize encoded entities
       .replace(/&nbsp;/g, " ")
       .replace(/&amp;/g, "&")
-      // Break before ALL-CAPS labels of form "WORDS:" or "WORDS WITH SPACES:"
-      // (min 2 uppercase words) when preceded by content on the same line
-      .replace(/([^\n])\s+(\b[A-Z][A-Z0-9 /&-]{3,40}:)/g, "$1\n\n$2")
-      // Break on single-word labels we know (SOLICITATION NUMBER, etc.)
-      .replace(/\b(SOLICITATION NUMBER|PROJECT MAGNITUDE|TYPE OF CONTRACT|NAICS CODE|EVALUATION FACTORS|SET ASIDE|SITE VISIT|POINT OF CONTACT|REGISTRATIONS|AMENDMENT \d+):/g, "\n\n$1:")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      // Labels: if one appears mid-line, break before it
+      .replace(labelPattern, "$1\n\n$2:")
+      .replace(amendmentRe, "\n\n$&")
+      // Value run-on: "NUMBER: 140P6426B0002PROJECT MAGNITUDE:" has no
+      // space between the value and the next label. After the above pass
+      // the label ended up split by the regex only if the preceding char
+      // is non-word — which it isn't here ("2P"). Split alphanumeric→UPPER
+      // transition when followed by a whitelisted label.
+      .replace(
+        new RegExp(
+          `([a-z0-9])(${sortedLabels.map(escape).join("|")}):`,
+          "g"
+        ),
+        "$1\n\n$2:"
+      )
       .replace(/\n{3,}/g, "\n\n")
       .trim();
+
+    return out;
   }
 
   return (

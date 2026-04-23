@@ -115,8 +115,9 @@ async function scrape() {
         closeDate = cellTexts[2];
       }
 
-      // Clean up "NEW!" badge text that gets appended to titles
-      if (title) title = title.replace(/NEW!?\s*$/i, '').trim();
+      // Clean up "NEW!" badge text that gets appended to titles.
+      // Covers "NEW", "NEW!", "NEW!!", "new!", with or without whitespace.
+      if (title) title = title.replace(/\s*NEW!{0,3}\s*$/i, '').trim();
 
       // Skip if no meaningful title
       if (!title || title.length < 3) return;

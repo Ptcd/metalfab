@@ -21,18 +21,20 @@ export function AddOpportunityModal({ onClose, initial }: Props) {
   const [customerQuery, setCustomerQuery] = useState("");
   const [customerResults, setCustomerResults] = useState<Customer[]>([]);
   const [pickedCustomer, setPickedCustomer] = useState<Customer | null>(null);
+  const [searchedCustomers, setSearchedCustomers] = useState(false);
   const [runQa, setRunQa] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const [files, setFiles] = useState<File[]>(initial?.droppedFiles || []);
 
   // Customer search
   useEffect(() => {
-    if (!customerQuery.trim()) { setCustomerResults([]); return; }
+    if (!customerQuery.trim()) { setCustomerResults([]); setSearchedCustomers(false); return; }
     const t = setTimeout(async () => {
       const res = await fetch(`/api/customers?q=${encodeURIComponent(customerQuery)}`);
       if (res.ok) {
         const { data } = await res.json();
         setCustomerResults(data || []);
+        setSearchedCustomers(true);
       }
     }, 250);
     return () => clearTimeout(t);
@@ -146,19 +148,32 @@ export function AddOpportunityModal({ onClose, initial }: Props) {
                   placeholder="Search existing customers…"
                   className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-white"
                 />
-                {customerResults.length > 0 && (
+                {customerQuery && (
                   <div className="absolute z-10 left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                    {customerResults.map((c) => (
-                      <button
-                        type="button"
-                        key={c.id}
-                        onClick={() => { setPickedCustomer(c); setCustomerQuery(""); setCustomerResults([]); }}
-                        className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-sm"
-                      >
-                        <span className="font-medium text-slate-900 dark:text-white">{c.name}</span>
-                        {c.company && <span className="text-slate-500 dark:text-slate-400"> · {c.company}</span>}
-                      </button>
-                    ))}
+                    {customerResults.length === 0 && searchedCustomers ? (
+                      <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+                        No matches —{" "}
+                        <a
+                          href="/customers?new=1"
+                          target="_blank"
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          create customer →
+                        </a>
+                      </div>
+                    ) : (
+                      customerResults.map((c) => (
+                        <button
+                          type="button"
+                          key={c.id}
+                          onClick={() => { setPickedCustomer(c); setCustomerQuery(""); setCustomerResults([]); }}
+                          className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-sm"
+                        >
+                          <span className="font-medium text-slate-900 dark:text-white">{c.name}</span>
+                          {c.company && <span className="text-slate-500 dark:text-slate-400"> · {c.company}</span>}
+                        </button>
+                      ))
+                    )}
                   </div>
                 )}
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">

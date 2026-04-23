@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  Opportunity, OpportunityStatus, BidDocument, QaReport,
+  Opportunity, OpportunityStatus, BidDocument, QaReport, Customer,
   DocumentCategory, DOCUMENT_CATEGORY_LABELS,
   INBOUND_CATEGORIES, INTERNAL_CATEGORIES, STATUS_LABELS,
 } from "@/types/opportunity";
@@ -45,6 +45,35 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
   const [uploadCategory, setUploadCategory] = useState<DocumentCategory>("shop_drawing");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Customer picker state
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [customerResults, setCustomerResults] = useState<Customer[]>([]);
+  const [searchedCustomers, setSearchedCustomers] = useState(false);
+
+  // Load the current customer if linked
+  useEffect(() => {
+    if (!opp.customer_id || customer?.id === opp.customer_id) return;
+    fetch(`/api/customers/${opp.customer_id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (b?.data) setCustomer(b.data); })
+      .catch(() => {});
+  }, [opp.customer_id, customer?.id]);
+
+  // Customer search
+  useEffect(() => {
+    if (!customerQuery.trim()) { setCustomerResults([]); setSearchedCustomers(false); return; }
+    const t = setTimeout(async () => {
+      const res = await fetch(`/api/customers?q=${encodeURIComponent(customerQuery)}`);
+      if (res.ok) {
+        const { data } = await res.json();
+        setCustomerResults(data || []);
+        setSearchedCustomers(true);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [customerQuery]);
+
   async function handleSave() {
     setSaving(true);
     setSaved(false);
@@ -57,6 +86,7 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
         referrer: referrer || null,
         estimated_value: estimatedValue ? Number(estimatedValue) : null,
         confidence: confidence || null,
+        customer_id: customer?.id ?? null,
       }),
     });
 
@@ -64,7 +94,7 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
       const { data } = await res.json();
       setOpp(data);
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setTimeout(() => setSaved(false), 3500);
     }
 
     setSaving(false);
@@ -134,13 +164,58 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
   }
 
+  function formatDollarRange(min: number | null, max: number | null) {
+    if (min == null && max == null) return "Not specified";
+    if (min != null && max == null) return `from ${formatDollars(min)}`;
+    if (min == null && max != null) return `up to ${formatDollars(max)}`;
+    if (min === max) return formatDollars(min);
+    return `${formatDollars(min)} – ${formatDollars(max)}`;
+  }
+
   function formatDate(d: string | null) {
     if (!d) return "—";
     return new Date(d).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   }
 
+  function formatDateTime(d: string | null) {
+    if (!d) return "—";
+    const dt = new Date(d);
+    return dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+      + " at "
+      + dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+  }
+
+  // Scraped descriptions from SAM.gov/BidNet etc come through as one wall
+  // of text. Inject line breaks before common ALL-CAPS section labels so a
+  // VA can actually scan them.
+  function prettifyDescription(raw: string | null | undefined): string {
+    if (!raw) return "";
+    return raw
+      // Replace <br/> tags left from HTML with newlines
+      .replace(/<br\s*\/?>/gi, "\n")
+      // Strip remaining tags
+      .replace(/<[^>]+>/g, "")
+      // Normalize encoded entities
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      // Break before ALL-CAPS labels of form "WORDS:" or "WORDS WITH SPACES:"
+      // (min 2 uppercase words) when preceded by content on the same line
+      .replace(/([^\n])\s+(\b[A-Z][A-Z0-9 /&-]{3,40}:)/g, "$1\n\n$2")
+      // Break on single-word labels we know (SOLICITATION NUMBER, etc.)
+      .replace(/\b(SOLICITATION NUMBER|PROJECT MAGNITUDE|TYPE OF CONTRACT|NAICS CODE|EVALUATION FACTORS|SET ASIDE|SITE VISIT|POINT OF CONTACT|REGISTRATIONS|AMENDMENT \d+):/g, "\n\n$1:")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
   return (
     <div className="max-w-4xl">
+      {/* Floating save toast */}
+      {saved && (
+        <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white text-sm font-medium px-4 py-2 rounded-md shadow-lg animate-in fade-in slide-in-from-top-2">
+          ✓ Saved
+        </div>
+      )}
+
       <Link href="/dashboard" className="text-sm text-blue-600 dark:text-blue-400 hover:underline mb-4 inline-block">
         &larr; Back to Pipeline
       </Link>
@@ -155,7 +230,7 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
 
       {/* Key info grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <InfoCard label="Dollar Range" value={`${formatDollars(opp.dollar_min)} – ${formatDollars(opp.dollar_max)}`} />
+        <InfoCard label="Dollar Range" value={formatDollarRange(opp.dollar_min, opp.dollar_max)} />
         <InfoCard label="Deadline" value={formatDate(opp.response_deadline)} />
         <InfoCard label="NAICS" value={opp.naics_code ?? "—"} />
         <InfoCard label="Source" value={opp.source} />
@@ -165,8 +240,8 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
       {opp.description && (
         <div className="mb-6">
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Description</h3>
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap max-h-60 overflow-y-auto">
-            {opp.description}
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap max-h-80 overflow-y-auto leading-relaxed">
+            {prettifyDescription(opp.description)}
           </div>
         </div>
       )}
@@ -219,7 +294,7 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
               </div>
               <div>
                 <span className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Pre-bid meeting</span>
-                <p className="text-slate-900 dark:text-white">{qaReport.pre_bid_meeting ?? "—"}</p>
+                <p className="text-slate-900 dark:text-white">{formatDateTime(qaReport.pre_bid_meeting)}</p>
               </div>
               <div>
                 <span className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Location</span>
@@ -342,7 +417,7 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
           <StatusBadge status={status} />
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">TCB Est. $</label>
             <input
@@ -352,6 +427,14 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
               placeholder="—"
               className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm text-slate-900 dark:text-white"
             />
+            {estimatedValue && !isNaN(Number(estimatedValue)) && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(Number(estimatedValue))}
+                {(Number(estimatedValue) < 10000 || Number(estimatedValue) > 1500000) && (
+                  <span className="ml-1 text-amber-600 dark:text-amber-400">· outside $10k–$1.5M range</span>
+                )}
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Confidence</label>
@@ -361,21 +444,85 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
               className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm text-slate-900 dark:text-white"
             >
               <option value="">—</option>
-              <option value="hot">Hot</option>
-              <option value="warm">Warm</option>
-              <option value="cold">Cold</option>
+              <option value="hot">Hot (very likely)</option>
+              <option value="warm">Warm (worth a look)</option>
+              <option value="cold">Cold (long shot)</option>
             </select>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Referrer</label>
-            <input
-              type="text"
-              value={referrer}
-              onChange={(e) => setReferrer(e.target.value)}
-              placeholder="e.g. Mike at CD Smith"
-              className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm text-slate-900 dark:text-white"
-            />
-          </div>
+        </div>
+
+        {/* Customer / GC picker */}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Customer / GC</label>
+          {customer ? (
+            <div className="flex items-center gap-2 rounded-md border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-900/20 px-3 py-2">
+              <Link href={`/customers/${customer.id}`} className="flex-1 min-w-0 hover:underline">
+                <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{customer.name}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                  {customer.company || customer.email || "—"}
+                </p>
+              </Link>
+              <button
+                type="button"
+                onClick={() => setCustomer(null)}
+                className="text-xs text-red-600 hover:underline shrink-0"
+              >
+                Unlink
+              </button>
+            </div>
+          ) : (
+            <div className="relative">
+              <input
+                value={customerQuery}
+                onChange={(e) => setCustomerQuery(e.target.value)}
+                placeholder="Search existing customers…"
+                className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm text-slate-900 dark:text-white"
+              />
+              {customerQuery && (
+                <div className="absolute z-10 left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                  {customerResults.length === 0 && searchedCustomers ? (
+                    <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+                      No matches —{" "}
+                      <a
+                        href="/customers?new=1"
+                        target="_blank"
+                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        create customer →
+                      </a>
+                    </div>
+                  ) : (
+                    customerResults.map((c) => (
+                      <button
+                        type="button"
+                        key={c.id}
+                        onClick={() => {
+                          setCustomer(c);
+                          setCustomerQuery("");
+                          setCustomerResults([]);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-sm"
+                      >
+                        <span className="font-medium text-slate-900 dark:text-white">{c.name}</span>
+                        {c.company && <span className="text-slate-500 dark:text-slate-400"> · {c.company}</span>}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Referrer (free text — names, emails, context)</label>
+          <textarea
+            value={referrer}
+            onChange={(e) => setReferrer(e.target.value)}
+            rows={2}
+            placeholder="e.g. Mike at CD Smith (mike@cdsmith.com) — referred us for the Ripon job"
+            className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm text-slate-900 dark:text-white"
+          />
         </div>
 
         <div>

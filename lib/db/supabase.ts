@@ -1,11 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 import { createBrowserClient as createSSRBrowserClient } from '@supabase/ssr';
 
-// Server-side client with service role key (bypasses RLS)
+// Server-side client with service role key (bypasses RLS).
+// We pass a custom fetch that disables Next.js's implicit Data Cache —
+// otherwise SSR pages see a snapshot from the first render and never update.
 export function createServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key);
+  return createClient(url, key, {
+    auth: { persistSession: false },
+    global: {
+      fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+    },
+  });
 }
 
 // Browser-side client with anon key — uses @supabase/ssr so auth tokens

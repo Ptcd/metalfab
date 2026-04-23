@@ -9,6 +9,21 @@ export type OpportunityStatus =
   | 'qa_qualified'
   | 'qa_rejected';
 
+// Human-readable labels for every status — use these anywhere we show a
+// dropdown, filter option, or badge to a VA. The underscored values only
+// belong in the database.
+export const STATUS_LABELS: Record<OpportunityStatus, string> = {
+  new: 'Inbox (unscreened)',
+  reviewing: 'Under Review',
+  awaiting_qa: 'Awaiting AI Analysis',
+  qa_qualified: 'Ready for Estimator',
+  qa_rejected: 'AI Rejected',
+  bidding: 'Bidding',
+  won: 'Won',
+  lost: 'Lost',
+  passed: 'Passed',
+};
+
 // Inbound categories come off the GC's bid package; internal categories are
 // artifacts TCB produces (shop drawings, proposals, takeoffs, jobsite photos).
 export type DocumentCategory =

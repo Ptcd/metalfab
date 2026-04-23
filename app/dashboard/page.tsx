@@ -25,8 +25,10 @@ export default async function DashboardPage({
   // "all" shows everything, otherwise filter by status
   if (activeStatus !== "all") query = query.eq("status", activeStatus);
 
-  // Hide expired opportunities (past deadline) unless explicitly viewing all or passed
-  if (activeStatus === "new" || activeStatus === "reviewing") {
+  // Hide expired opps on the unscreened `new` queue only — once a human has
+  // put something in reviewing, they should still see it even if the deadline
+  // slipped (they may need to change its status).
+  if (activeStatus === "new") {
     query = query.or("response_deadline.is.null,response_deadline.gte." + new Date().toISOString());
   }
   if (searchParams.score_min) query = query.gte("score", parseInt(searchParams.score_min));

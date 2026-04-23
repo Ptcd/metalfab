@@ -1,4 +1,4 @@
-import { OpportunityStatus } from "@/types/opportunity";
+import { OpportunityStatus, STATUS_LABELS } from "@/types/opportunity";
 
 const statusStyles: Record<OpportunityStatus, string> = {
   new: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
@@ -12,17 +12,10 @@ const statusStyles: Record<OpportunityStatus, string> = {
   passed: "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
 };
 
-const statusLabels: Partial<Record<OpportunityStatus, string>> = {
-  awaiting_qa: "awaiting QA",
-  qa_qualified: "QA qualified",
-  qa_rejected: "QA rejected",
-};
-
 export function StatusBadge({ status }: { status: OpportunityStatus }) {
-  const label = statusLabels[status] ?? status;
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${statusStyles[status]}`}>
-      {label}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${statusStyles[status]}`}>
+      {STATUS_LABELS[status]}
     </span>
   );
 }

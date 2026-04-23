@@ -117,6 +117,15 @@ export function ConfigEditor({ config }: Props) {
           QA Layer (Claude Code analysis + digest)
         </h3>
 
+        {(!data.estimator_email || !data.owner_email) && (
+          <div className="mb-4 p-3 rounded-md bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 text-sm border border-amber-200 dark:border-amber-900/40">
+            <strong>Digest will fail until you fill in both emails below.</strong>
+            <br />
+            {!data.estimator_email && <span>• Estimator email is empty — nobody will receive the daily digest.<br /></span>}
+            {!data.owner_email && <span>• Owner email is empty — failure alerts have nowhere to go.<br /></span>}
+          </div>
+        )}
+
         <div className="flex items-center gap-2 mb-4">
           <input
             id="qa_enabled"

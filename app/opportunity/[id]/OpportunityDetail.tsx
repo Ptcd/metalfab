@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Opportunity, OpportunityStatus, BidDocument, QaReport,
   DocumentCategory, DOCUMENT_CATEGORY_LABELS,
-  INBOUND_CATEGORIES, INTERNAL_CATEGORIES,
+  INBOUND_CATEGORIES, INTERNAL_CATEGORIES, STATUS_LABELS,
 } from "@/types/opportunity";
 import { ScoreSignal } from "@/types/scoring";
 import { ScoreBadge } from "../../components/ScoreBadge";
@@ -97,7 +97,14 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
   }
 
   async function handleDeleteDoc(d: BidDocument) {
-    if (!confirm(`Delete ${d.filename}?`)) return;
+    const isInbound = (INBOUND_CATEGORIES as string[]).includes(d.category);
+    // Heavier confirm for inbound (from the GC / agency) — those may not be
+    // easy to re-download if we nuke them, especially SAM.gov controlled
+    // access attachments. Internal TCB artifacts can be re-uploaded anytime.
+    const message = isInbound
+      ? `⚠️  Delete INBOUND bid document: ${d.filename}?\n\nThis came from the GC / agency and may not be re-downloadable if SAM.gov or the source portal has moved on. Are you sure?`
+      : `Delete ${d.filename}?`;
+    if (!confirm(message)) return;
     const res = await fetch(
       `/api/opportunities/${opp.id}/documents/${encodeURIComponent(d.filename)}`,
       { method: "DELETE" }
@@ -329,7 +336,7 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
             className="rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-sm text-slate-900 dark:text-white"
           >
             {allStatuses.map((s) => (
-              <option key={s} value={s}>{s}</option>
+              <option key={s} value={s}>{STATUS_LABELS[s]}</option>
             ))}
           </select>
           <StatusBadge status={status} />

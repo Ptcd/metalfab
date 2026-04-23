@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/db/supabase";
 import Link from "next/link";
 import { ScoreBadge } from "../components/ScoreBadge";
+import { RunQaButton } from "./RunQaButton";
 
 export const dynamic = "force-dynamic";
 
@@ -34,12 +35,22 @@ export default async function TodayPage() {
   const greenThreshold = config?.score_green ?? 70;
   const yellowThreshold = config?.score_yellow ?? 40;
 
-  // Reviewing opportunities (your action items)
+  // Reviewing (human-vetted, needs a second look)
   const { data: reviewing } = await supabase
     .from("opportunities")
     .select("id, title, agency, score, response_deadline, notes, dollar_min, dollar_max, source_url, updated_at")
     .eq("status", "reviewing")
     .order("response_deadline", { ascending: true });
+
+  // Inbox — scraped but no human has looked yet. Kept separate so the VA
+  // triages fresh finds vs. stuff already in progress.
+  const { data: inbox } = await supabase
+    .from("opportunities")
+    .select("id, title, agency, score, response_deadline, notes, dollar_min, dollar_max, source_url, updated_at, source")
+    .eq("status", "new")
+    .order("score", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(50);
 
   // Bidding opportunities (actively pursuing)
   const { data: bidding } = await supabase
@@ -48,11 +59,14 @@ export default async function TodayPage() {
     .eq("status", "bidding")
     .order("response_deadline", { ascending: true });
 
-  // QA-qualified — ready for estimator review
+  // QA-qualified — ready for estimator review. Hide anything already past
+  // deadline so Gohar doesn't see bids he can't respond to.
+  const nowIso = new Date().toISOString();
   const { data: qaQualified } = await supabase
     .from("opportunities")
     .select("id, title, agency, score, response_deadline, dollar_min, dollar_max, qa_report, qa_needs_human_review")
     .eq("status", "qa_qualified")
+    .or(`response_deadline.is.null,response_deadline.gte.${nowIso}`)
     .order("updated_at", { ascending: false })
     .limit(25);
 
@@ -62,11 +76,7 @@ export default async function TodayPage() {
     .select("*", { count: "exact", head: true })
     .eq("status", "awaiting_qa");
 
-  // New (unreviewed — should be 0 after morning cron, nonzero = cron found stuff)
-  const { count: newCount } = await supabase
-    .from("opportunities")
-    .select("*", { count: "exact", head: true })
-    .eq("status", "new");
+  // (new-status count is covered by the Inbox section below)
 
   // Stats
   const { count: totalReviewing } = await supabase
@@ -128,33 +138,16 @@ export default async function TodayPage() {
         </div>
       </div>
 
-      {/* New unreviewed alert */}
-      {(newCount ?? 0) > 0 && (
-        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
-          <div className="flex items-center gap-2">
-            <span className="text-blue-600 dark:text-blue-400 text-lg font-bold">{newCount}</span>
-            <span className="text-blue-800 dark:text-blue-200 text-sm font-medium">
-              new opportunities need review
-            </span>
-          </div>
-          <Link href="/dashboard?status=new" className="text-blue-600 dark:text-blue-400 text-sm underline mt-1 block">
-            Review now →
-          </Link>
-        </div>
-      )}
-
-      {/* awaiting_qa operator prompt */}
+      {/* awaiting_qa operator prompt — now with a real button */}
       {(awaitingQaCount ?? 0) > 0 && (
         <div className="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4 mb-6">
           <div className="flex items-center gap-2">
             <span className="text-indigo-700 dark:text-indigo-300 text-lg font-bold">{awaitingQaCount}</span>
             <span className="text-indigo-800 dark:text-indigo-200 text-sm font-medium">
-              opportunit{(awaitingQaCount ?? 0) === 1 ? "y" : "ies"} awaiting QA — run Claude Code
+              opportunit{(awaitingQaCount ?? 0) === 1 ? "y" : "ies"} awaiting QA
             </span>
           </div>
-          <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-1 font-mono">
-            node scripts/qa-prepare.js → Claude Code on scripts/qa-analyze.md → node scripts/qa-commit.js
-          </p>
+          <RunQaButton awaitingCount={awaitingQaCount ?? 0} />
         </div>
       )}
 
@@ -297,7 +290,7 @@ export default async function TodayPage() {
       {upcoming.length > 0 && (
         <section className="mb-6">
           <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-3">
-            In The Pipeline
+            Under Review ({upcoming.length})
           </h3>
           <div className="space-y-2">
             {upcoming.map((opp) => {
@@ -338,8 +331,63 @@ export default async function TodayPage() {
         </section>
       )}
 
+      {/* Inbox — scraped, not yet screened by a human. Triaged separately
+          from Under Review so the VA can batch these. */}
+      {(inbox?.length ?? 0) > 0 && (
+        <section className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+              Inbox — Unscreened ({inbox?.length})
+            </h3>
+            <Link href="/dashboard?status=new" className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
+              Triage all →
+            </Link>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+            Scraped in the last cron run. Open each, then move to Under Review (worth a second look) or Passed (clearly not a fit).
+          </p>
+          <div className="space-y-2">
+            {inbox?.slice(0, 15).map((opp) => {
+              const days = opp.response_deadline ? daysUntil(opp.response_deadline) : null;
+              const tag = days != null ? urgencyTag(days) : null;
+              return (
+                <Link
+                  key={opp.id}
+                  href={`/opportunity/${opp.id}`}
+                  className="block bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-900/40 rounded-lg p-3 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <ScoreBadge score={opp.score} greenThreshold={greenThreshold} yellowThreshold={yellowThreshold} />
+                        {tag && (
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${tag.className}`}>
+                            {tag.label}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-mono text-slate-400">{opp.source}</span>
+                      </div>
+                      <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{opp.title}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {opp.agency ?? "—"}
+                        {opp.response_deadline && ` · Due ${formatDeadline(opp.response_deadline)}`}
+                      </p>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+          {(inbox?.length ?? 0) > 15 && (
+            <Link href="/dashboard?status=new" className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-2 inline-block">
+              Show {(inbox?.length ?? 0) - 15} more →
+            </Link>
+          )}
+        </section>
+      )}
+
       {/* Empty state */}
-      {(reviewing?.length ?? 0) === 0 && (bidding?.length ?? 0) === 0 && (newCount ?? 0) === 0 && (
+      {(reviewing?.length ?? 0) === 0 && (bidding?.length ?? 0) === 0 && (inbox?.length ?? 0) === 0 && (qaQualified?.length ?? 0) === 0 && (
         <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-8 text-center">
           <p className="text-slate-500 dark:text-slate-400">No opportunities in the pipeline right now.</p>
           <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">

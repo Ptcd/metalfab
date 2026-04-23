@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { Opportunity, OpportunityStatus } from "@/types/opportunity";
+import { Opportunity, OpportunityStatus, STATUS_LABELS } from "@/types/opportunity";
 import { ScoreBadge } from "../components/ScoreBadge";
 import { StatusBadge } from "../components/StatusBadge";
 import { AddOpportunityModal } from "./AddOpportunityModal";
@@ -109,7 +109,7 @@ export function PipelineTable({ opportunities, count, greenThreshold, yellowThre
         >
           <option value="all">All Statuses</option>
           {statuses.filter(Boolean).map((s) => (
-            <option key={s} value={s}>{s}</option>
+            <option key={s} value={s}>{STATUS_LABELS[s as OpportunityStatus]}</option>
           ))}
         </select>
 

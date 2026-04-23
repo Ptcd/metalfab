@@ -201,9 +201,10 @@ async function runDigest() {
   const to = process.env.ESTIMATOR_EMAIL || cfg.estimator_email;
   const ccAddr = process.env.OWNER_EMAIL || cfg.owner_email;
   if (!to) {
-    await addError(run, 'config', 'no estimator email');
-    await finishRun(run, { status: 'failed' });
-    return { ok: false, error: 'no estimator email configured' };
+    const msg = 'No ESTIMATOR_EMAIL set in env or scoring_config.estimator_email. Fill it in at /config and re-run.';
+    await addError(run, 'config', msg);
+    await finishRun(run, { status: 'failed', notes: msg });
+    return { ok: false, error: msg };
   }
 
   const qualified = await loadQualified();
@@ -250,7 +251,10 @@ async function runDigest() {
     };
   } catch (e) {
     await addError(run, 'send', e);
-    await finishRun(run, { status: 'failed' });
+    await finishRun(run, {
+      status: 'failed',
+      notes: `Brevo send failed: ${e.message?.slice(0, 300)}`,
+    });
     await sendOwnerAlert(ccAddr, 'Digest send failed', e).catch(() => {});
     return { ok: false, error: e.message };
   }

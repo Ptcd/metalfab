@@ -10,6 +10,8 @@ import {
 import { ScoreSignal } from "@/types/scoring";
 import { ScoreBadge } from "../../components/ScoreBadge";
 import { StatusBadge } from "../../components/StatusBadge";
+import { BidSubmitButton } from "./BidSubmitButton";
+import { SendEmailButton } from "../../components/SendEmailButton";
 
 const allStatuses: OpportunityStatus[] = [
   "new",
@@ -617,6 +619,13 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
           >
             {saving ? "Saving..." : "Save Changes"}
           </button>
+          <BidSubmitButton oppId={opp.id} gcEmail={opp.contact_email} />
+          <SendEmailButton
+            toEmail={opp.contact_email || customer?.email}
+            customerId={customer?.id ?? null}
+            opportunityId={opp.id}
+            buttonLabel="Email GC"
+          />
           {saved && <span className="text-sm text-emerald-600 dark:text-emerald-400">Saved</span>}
         </div>
 

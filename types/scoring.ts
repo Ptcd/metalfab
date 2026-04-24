@@ -14,6 +14,9 @@ export interface ScoringConfig {
   owner_email: string | null;
   doc_retention_won_days: number;
   doc_retention_lost_days: number;
+  target_states: string[];
+  target_state_bonus: number;
+  out_of_region_penalty: number;
   updated_at: string;
 }
 

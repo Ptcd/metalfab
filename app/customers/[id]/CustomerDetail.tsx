@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Customer, OpportunityStatus } from "@/types/opportunity";
 import { StatusBadge } from "../../components/StatusBadge";
+import { SendEmailButton } from "../../components/SendEmailButton";
 
 interface OppSummary {
   id: string;
@@ -126,9 +127,14 @@ export function CustomerDetail({
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
+          <SendEmailButton
+            toEmail={c.email}
+            customerId={c.id}
+            buttonLabel="Email"
+          />
           <button
             onClick={() => setLoggingContact(true)}
-            className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
+            className="px-3 py-1.5 rounded-md bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600 text-sm"
           >
             + Log contact
           </button>

@@ -14,6 +14,8 @@
         "app/api/opportunities/*/route.ts",
         "app/api/opportunities/*/documents/route.ts",
         "app/api/opportunities/*/documents/*/route.ts",
+        "app/api/opportunities/*/bid-submissions/route.ts",
+        "app/api/opportunities/bulk/route.ts",
         "app/api/inbound/*/route.ts"
       ],
       "rules": {

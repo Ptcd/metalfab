@@ -113,6 +113,67 @@ export interface QaReport {
   analyzed_at: string;
 }
 
+export interface BidSubmission {
+  id: string;
+  opportunity_id: string;
+  customer_id: string | null;
+  submitted_at: string;
+  submitted_by: string | null;
+  amount_usd: number | null;
+  proposal_storage_path: string | null;
+  proposal_filename: string | null;
+  notes: string | null;
+  method: 'email' | 'portal' | 'phone' | 'other' | null;
+  gc_contact_email: string | null;
+  created_at: string;
+}
+
+export type ReminderType =
+  | 'deadline_approaching'
+  | 'bid_followup_3d'
+  | 'bid_followup_10d'
+  | 'pre_bid_meeting'
+  | 'rebid_check_award'
+  | 'custom';
+
+export interface Reminder {
+  id: string;
+  opportunity_id: string | null;
+  customer_id: string | null;
+  reminder_type: ReminderType;
+  due_at: string;
+  subject: string;
+  body: string | null;
+  completed_at: string | null;
+  snoozed_until: string | null;
+  created_at: string;
+}
+
+export const REMINDER_TYPE_LABELS: Record<ReminderType, string> = {
+  deadline_approaching: 'Bid deadline',
+  bid_followup_3d: '3-day bid follow-up',
+  bid_followup_10d: '10-day bid follow-up',
+  pre_bid_meeting: 'Pre-bid meeting',
+  rebid_check_award: 'Check for award / re-bid',
+  custom: 'Custom',
+};
+
+export interface EmailThread {
+  id: string;
+  customer_id: string | null;
+  opportunity_id: string | null;
+  direction: 'outbound' | 'inbound';
+  message_id: string | null;
+  in_reply_to: string | null;
+  subject: string | null;
+  from_address: string | null;
+  to_addresses: string[] | null;
+  body_text: string | null;
+  sent_at: string;
+  template_key: string | null;
+  created_at: string;
+}
+
 export type SourceChannel = 'scraper' | 'email' | 'manual' | 'api' | 'referral';
 export type AddedVia = 'scraper' | 'quick-add' | 'pdf-drop' | 'email-forward' | 'api' | 'email-ingest';
 export type Confidence = 'hot' | 'warm' | 'cold';

@@ -161,10 +161,27 @@ export function scoreOpportunity(input: ScoringInput, config: ScoringConfig | nu
   const continentalUS = isContinentalUS(input.place_of_performance);
   signals.push({ signal: 'Continental US', delta: 10, fired: continentalUS });
 
-  // Near Racine, WI bonus: +10
+  // Near Racine, WI bonus: configurable from scoring_config.target_state_bonus
   // Jobs within ~4 hours driving distance get a bonus
-  const nearbyJob = isNearRacine(input.place_of_performance) === true;
-  signals.push({ signal: 'Within driving distance of Racine, WI', delta: 10, fired: nearbyJob });
+  const nearRacine = isNearRacine(input.place_of_performance);
+  const nearbyJob = nearRacine === true;
+  const targetBonus = config.target_state_bonus ?? 15;
+  signals.push({
+    signal: `Within driving distance of Racine (${config.target_states?.join('/') || 'WI/IL/IA/MN/IN'})`,
+    delta: targetBonus,
+    fired: nearbyJob,
+  });
+
+  // Out-of-region penalty: if place is CONUS but clearly NOT in target states,
+  // apply a penalty proportional to how far. Tionesta Dam (PA), Mammoth Cave (KY),
+  // New Castle (NH) all previously slipped through as qa_qualified.
+  const outOfRegionPenalty = config.out_of_region_penalty ?? 20;
+  const outOfRegion = nearRacine === false && continentalUS;
+  signals.push({
+    signal: 'Out-of-region (CONUS but not WI/nearby)',
+    delta: -outOfRegionPenalty,
+    fired: outOfRegion,
+  });
 
   // --- Negative signals ---
 
@@ -227,7 +244,6 @@ export function scoreOpportunity(input: ScoringInput, config: ScoringConfig | nu
     textContains(text, 'mandatory walk') ||
     textContains(text, 'mandatory inspection');
 
-  const nearRacine = isNearRacine(input.place_of_performance);
   const hasDrawings = hasDrawingsOrPrints(text);
 
   // Far from Racine with mandatory site visit = -20

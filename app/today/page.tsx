@@ -2,6 +2,7 @@ import { createServiceClient } from "@/lib/db/supabase";
 import Link from "next/link";
 import { ScoreBadge } from "../components/ScoreBadge";
 import { RunQaButton } from "./RunQaButton";
+import { RemindersList, ReminderRow } from "./RemindersList";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +77,38 @@ export default async function TodayPage() {
     .select("*", { count: "exact", head: true })
     .eq("status", "awaiting_qa");
 
-  // (new-status count is covered by the Inbox section below)
+  // Active reminders (overdue or due in the next 7 days, not completed, not snoozed)
+  const reminderCutoff = new Date();
+  reminderCutoff.setDate(reminderCutoff.getDate() + 7);
+  const { data: rawReminders } = await supabase
+    .from("reminders")
+    .select("*")
+    .is("completed_at", null)
+    .or(`snoozed_until.is.null,snoozed_until.lte.${new Date().toISOString()}`)
+    .lte("due_at", reminderCutoff.toISOString())
+    .order("due_at", { ascending: true })
+    .limit(25);
+
+  // Attach titles/names so the reminder item can display what it's about
+  const oppIds = Array.from(new Set((rawReminders ?? []).map((r) => r.opportunity_id).filter(Boolean)));
+  const custIds = Array.from(new Set((rawReminders ?? []).map((r) => r.customer_id).filter(Boolean)));
+  const [{ data: oppTitles }, { data: custNames }] = await Promise.all([
+    oppIds.length ? supabase.from("opportunities").select("id, title").in("id", oppIds) : Promise.resolve({ data: [] }),
+    custIds.length ? supabase.from("customers").select("id, name").in("id", custIds) : Promise.resolve({ data: [] }),
+  ]);
+  const oppTitleMap = new Map((oppTitles ?? []).map((o: { id: string; title: string }) => [o.id, o.title]));
+  const custNameMap = new Map((custNames ?? []).map((c: { id: string; name: string }) => [c.id, c.name]));
+  const reminders: ReminderRow[] = (rawReminders ?? []).map((r) => ({
+    id: r.id,
+    opportunity_id: r.opportunity_id,
+    customer_id: r.customer_id,
+    reminder_type: r.reminder_type,
+    due_at: r.due_at,
+    subject: r.subject,
+    body: r.body,
+    opportunity_title: r.opportunity_id ? oppTitleMap.get(r.opportunity_id) ?? null : null,
+    customer_name: r.customer_id ? custNameMap.get(r.customer_id) ?? null : null,
+  }));
 
   // Stats
   const { count: totalReviewing } = await supabase
@@ -139,6 +171,9 @@ export default async function TodayPage() {
           <p className="text-xs text-slate-500 dark:text-slate-400">Won</p>
         </div>
       </div>
+
+      {/* Reminders — surfaces bid follow-ups, award-check prompts, etc. */}
+      <RemindersList reminders={reminders} />
 
       {/* awaiting_qa operator prompt — now with a real button */}
       {(awaitingQaCount ?? 0) > 0 && (

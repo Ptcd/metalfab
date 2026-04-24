@@ -243,6 +243,92 @@ function guessDeadline(text) {
 
 // ---- per-email processing ----------------------------------------------
 
+/**
+ * Look for a matching outbound email_threads row. If the incoming email is a
+ * reply (In-Reply-To, References, or Subject "Re: ..."), link it to the
+ * parent thread and return the customer_id/opportunity_id to attach.
+ */
+async function matchOutboundThread(parsed) {
+  const inReplyTo = parsed.inReplyTo || parsed.headers?.get('in-reply-to');
+  const references = parsed.references || parsed.headers?.get('references');
+  const subject = parsed.subject || '';
+  const candidates = [];
+  if (inReplyTo) candidates.push(inReplyTo);
+  if (Array.isArray(references)) candidates.push(...references);
+  else if (typeof references === 'string') candidates.push(...references.split(/\s+/));
+  if (candidates.length === 0) return null;
+
+  // Try each message-id
+  for (const candidate of candidates) {
+    const mid = candidate.trim();
+    if (!mid) continue;
+    const q = encodeURIComponent(mid);
+    const url = `${SUPABASE_URL}/rest/v1/email_threads?message_id=eq.${q}&direction=eq.outbound&select=id,customer_id,opportunity_id,subject&limit=1`;
+    const res = await fetch(url, { headers: headers() });
+    const arr = await res.json();
+    if (Array.isArray(arr) && arr[0]) return arr[0];
+  }
+
+  // Fallback: match on subject "Re: <original>"
+  const reMatch = subject.match(/^(?:RE|Re|re|FWD|Fwd|fwd):?\s*(.+)/);
+  if (reMatch) {
+    const base = reMatch[1].trim().slice(0, 120);
+    const q = encodeURIComponent(`%${base}%`);
+    const url = `${SUPABASE_URL}/rest/v1/email_threads?subject=ilike.${q}&direction=eq.outbound&select=id,customer_id,opportunity_id,subject&order=sent_at.desc&limit=1`;
+    const res = await fetch(url, { headers: headers() });
+    const arr = await res.json();
+    if (Array.isArray(arr) && arr[0]) return arr[0];
+  }
+  return null;
+}
+
+async function logInboundReply(parsed, parent) {
+  const from = parsed.from?.value?.[0]?.address || null;
+  const subject = parsed.subject || null;
+  const text = (parsed.text || '').slice(0, 8000);
+  await fetch(`${SUPABASE_URL}/rest/v1/email_threads`, {
+    method: 'POST',
+    headers: { ...headers(), Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      customer_id: parent.customer_id,
+      opportunity_id: parent.opportunity_id,
+      direction: 'inbound',
+      message_id: parsed.messageId || null,
+      in_reply_to: parent.id,
+      subject,
+      from_address: from,
+      to_addresses: (parsed.to?.value || []).map((t) => t.address).filter(Boolean),
+      body_text: text,
+    }),
+  });
+  // Update customer last_contact + note
+  if (parent.customer_id) {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const cRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${parent.customer_id}&select=notes`, { headers: headers() });
+    const [cust] = await cRes.json();
+    const noteLine = `${today} — reply from ${from || 'unknown'}: ${subject || '(no subject)'}`;
+    const merged = [noteLine, cust?.notes || ''].filter(Boolean).join('\n\n');
+    await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${parent.customer_id}`, {
+      method: 'PATCH',
+      headers: { ...headers(), Prefer: 'return=minimal' },
+      body: JSON.stringify({ notes: merged, last_contact: today }),
+    });
+  }
+  // Event on opp
+  if (parent.opportunity_id) {
+    await fetch(`${SUPABASE_URL}/rest/v1/pipeline_events`, {
+      method: 'POST',
+      headers: { ...headers(), Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        opportunity_id: parent.opportunity_id,
+        event_type: 'email_received',
+        new_value: `${from}: ${subject}`.slice(0, 200),
+      }),
+    });
+  }
+}
+
 async function createBidOpportunity(parsed, uid) {
   const messageId = parsed.messageId || `email-${uid}`;
   if (await opportunityExists(messageId)) {
@@ -389,6 +475,17 @@ async function run() {
         const parsed = await simpleParser(msg.source);
         const fromAddr = (parsed.from?.value?.[0]?.address || '').toLowerCase();
         const subject = (parsed.subject || '(no subject)').slice(0, 80);
+
+        // First, check if this is a reply to a CRM outbound send. If so,
+        // log it against the thread and move on — no bid-classification.
+        const parentThread = await matchOutboundThread(parsed).catch(() => null);
+        if (parentThread) {
+          await logInboundReply(parsed, parentThread);
+          console.log(`  [${uid}] reply   ← ${fromAddr.slice(0, 32).padEnd(32)} | ↳ thread ${parentThread.id.slice(0, 8)}`);
+          await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
+          continue;
+        }
+
         const { verdict, reason } = classifyEmail(parsed, fromAddr);
 
         console.log(`  [${uid}] ${verdict.padEnd(7)} ← ${fromAddr.slice(0, 32).padEnd(32)} | ${subject}`);

@@ -23,6 +23,7 @@ CREATE INDEX IF NOT EXISTS idx_bid_submissions_opp ON bid_submissions (opportuni
 CREATE INDEX IF NOT EXISTS idx_bid_submissions_customer ON bid_submissions (customer_id) WHERE customer_id IS NOT NULL;
 
 ALTER TABLE bid_submissions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated users can read bid_submissions" ON bid_submissions;
 CREATE POLICY "Authenticated users can read bid_submissions"
   ON bid_submissions FOR SELECT TO authenticated USING (true);
 
@@ -58,6 +59,7 @@ CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (due_at)
 CREATE INDEX IF NOT EXISTS idx_reminders_opp ON reminders (opportunity_id);
 
 ALTER TABLE reminders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated users can read reminders" ON reminders;
 CREATE POLICY "Authenticated users can read reminders"
   ON reminders FOR SELECT TO authenticated USING (true);
 
@@ -86,6 +88,7 @@ CREATE INDEX IF NOT EXISTS idx_email_threads_msgid ON email_threads (message_id)
 CREATE INDEX IF NOT EXISTS idx_email_threads_replyto ON email_threads (in_reply_to) WHERE in_reply_to IS NOT NULL;
 
 ALTER TABLE email_threads ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated users can read email_threads" ON email_threads;
 CREATE POLICY "Authenticated users can read email_threads"
   ON email_threads FOR SELECT TO authenticated USING (true);
 

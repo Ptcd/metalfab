@@ -1,33 +1,42 @@
-# QA Analyzer — Claude Code Workflow
+# QA Analyzer v2 — Claude Code Workflow
 
 You are analyzing bid opportunity documents for **TCB Metalworks**, a Wisconsin
-metal fabrication shop. Your job: read the PDFs in `./qa-queue/<opp_id>/` and
-decide whether each opportunity is worth an estimator's time.
+metal fabrication shop. Your job: read the PDFs in `./qa-queue/<opp_id>/`,
+**visually look at structural drawings** (not just specs), identify members
+and stairs and railings by mark and size, pick the pages that matter to the
+estimator, and write a structured report.
 
-This file is meant to be invoked inside Claude Code. The owner runs
-`scripts/qa-prepare.js` first, which populates `./qa-queue/`. You then analyze
-each opportunity and write a `qa-report.json` into its folder. After you finish
-the whole batch, the owner runs `scripts/qa-commit.js` to push results to
-Supabase and purge rejected bids' documents.
+This is v2 — a richer successor to the scope-summary-only v1. The report
+now includes an itemized `identified_members` list and a `kept_pages`
+list so we can build a filtered "estimator package" PDF and later cross-
+check Gohar's takeoff against what the GC actually specified.
 
-**Do not call any Anthropic API.** You *are* the analyzer. You read the PDFs
-directly using your `Read` tool (PDFs are supported natively).
+**Do not call any Anthropic API.** You *are* the analyzer. Read the PDFs
+directly using the `Read` tool.
 
 ---
 
 ## About TCB Metalworks
 
-- **Shop:** Wisconsin metal fabricator. Core work: **handrails, railings,
-  stairs, ornamental metals, structural steel, misc metals, fencing,
-  gates, canopies, awnings, zoo cages, enclosures, architectural
-  metalwork**.
-- **Target dollar range:** $10k – $1.5M (their portion of the bid).
-- **Deal-breakers:** certifications we don't hold — **AWS certification,
-  AISC certification, PE stamp requirements**. Also cautious on
-  **prevailing wage certified**, **Davis-Bacon**, **union-only**.
+- **Shop:** Wisconsin metal fabricator. Core work: structural steel,
+  misc metals (lintels, embeds, brackets), stairs + railings + guardrails,
+  ornamental/architectural metalwork, fencing, canopies, bollards,
+  ladders, zoo cages.
+- **Target dollar range:** $10k–$1.5M of the TCB portion.
+- **Deal-breakers:** AWS certification required, AISC certification
+  required, PE stamp required, prevailing-wage-certified shop only.
+- **Not TCB's lane (don't recommend bid):**
+  - Commodity Division 10: metal lockers, toilet partitions, metal
+    shelving (ASI/Bradley/Lyon catalog stuff)
+  - Raw steel stock supply (tees, channels, angles by the ton)
+  - Metal roofing / siding panels
+  - Glazing / curtain wall
+  - HVAC ductwork
+  - Electrical / controls work on existing assemblies
+  - Marine / waterfront specialty civil
 
-The file `./qa-queue/batch-manifest.json` has the TCB scope criteria in
-`scope_criteria`. Treat it as canonical.
+File `./qa-queue/batch-manifest.json` has the TCB scope criteria in
+`scope_criteria`.
 
 ---
 
@@ -35,117 +44,170 @@ The file `./qa-queue/batch-manifest.json` has the TCB scope criteria in
 
 1. Read `./qa-queue/batch-manifest.json`.
 2. For each opportunity in `opportunities[]`:
-   a. Read `./qa-queue/<opp_id>/context.json` for metadata (title, agency,
-      deadline, dollar range, source URL, scraper-extracted description).
-   b. Read each PDF listed in `documents[]`. Specifications and drawings
-      matter most; read those first. Forms and addenda are usually lower
-      signal.
-   c. Produce a single structured JSON report matching the schema below.
-   d. Write it to `./qa-queue/<opp_id>/qa-report.json`.
+   a. Read `./qa-queue/<opp_id>/context.json` for metadata.
+   b. Walk through every PDF and DOCX in the folder. **Specifications first,
+      then drawings, then forms.** Read each one.
+   c. When you hit a structural drawing (S-series sheets, or any sheet
+      showing steel framing, stairs, railings, misc metals), read it
+      **visually** — look at the actual geometry, the member marks, the
+      general notes, the connection details. Don't skim.
+   d. Build the `identified_members` list (see schema). Every beam,
+      column, stair flight, railing run, bollard, embed — anything TCB
+      would fabricate. Use the GC's own marks if visible.
+   e. Decide which pages to keep for the estimator package (`kept_pages`).
+      Rule: keep a page if it (1) has Division 05 or Division 10 content,
+      (2) is an S-series sheet, (3) contains stair/railing/bollard details,
+      (4) has specs affecting our scope (finishes, inspection, bonding).
+      Ditch: foundation plans, MEP, civil, landscape, architectural pages
+      that don't touch metal.
+   f. Produce the JSON report matching the v2 schema below.
+   g. Write it to `./qa-queue/<opp_id>/qa-report.json`.
 3. After all opportunities are analyzed, tell the operator to run
-   `node scripts/qa-commit.js` from the repo root.
+   `node scripts/qa-commit.js`. That script will read each report, extract
+   the `kept_pages` into a filtered PDF uploaded back to Supabase Storage,
+   and push everything into the CRM.
 
-If a folder has no PDFs (download failed), write a `qa-report.json` with
-`recommendation: "human_review_needed"` and `recommendation_reasoning`
-noting the missing documents. Do not skip the folder.
+If a folder has no readable PDFs, write a report with
+`recommendation: "human_review_needed"` and a reasoning that names the
+specific problem. Don't skip the folder.
 
 ---
 
-## Required `qa-report.json` schema
+## Required `qa-report.json` schema — v2
 
 ```json
 {
-  "scope_summary": "2-3 sentence plain-English description of what's actually in this bid.",
+  "scope_summary": "2–3 sentence plain-English description.",
   "steel_metals_present": true,
   "steel_metals_estimated_value_usd": 45000,
   "risk_flags": ["bonding_required", "prevailing_wage"],
-  "scope_exclusions": ["explicitly excluded items that would affect our portion"],
+  "scope_exclusions": ["explicitly excluded items"],
   "due_date_confirmed": "2026-05-15",
   "pre_bid_meeting": "2026-05-01T14:00:00Z",
   "location_address": "123 Main St, Milwaukee, WI",
   "recommendation": "bid",
-  "recommendation_reasoning": "1-2 sentences explaining why.",
-  "analyzed_at": "2026-04-21T08:34:12Z"
+  "recommendation_reasoning": "1–2 sentences explaining why.",
+  "analyzed_at": "2026-04-24T08:34:12Z",
+
+  "identified_members": [
+    {
+      "kind": "beam",
+      "mark": "B-1",
+      "size": "W8x24",
+      "quantity": 8,
+      "unit": "ea",
+      "notes": "shop-painted, bolted to columns",
+      "source_page": 14
+    },
+    {
+      "kind": "stair",
+      "mark": "ST-A",
+      "size": "12 risers, 8' wide",
+      "quantity": 1,
+      "unit": "ea",
+      "notes": "bent-plate stringer, checker-plate treads, code-compliant railing both sides",
+      "source_page": 18
+    },
+    {
+      "kind": "railing",
+      "mark": "GR-1",
+      "size": "42\" tall, 1.5\" pipe, 6\" baluster spacing",
+      "quantity": 120,
+      "unit": "lf",
+      "notes": "hot-dip galvanized, wall-mounted returns",
+      "source_page": 18
+    }
+  ],
+
+  "kept_pages": [
+    {
+      "source_filename": "Specifications_-_Project.pdf",
+      "source_page": 42,
+      "sheet_number": null,
+      "reason": "Division 05 12 00 Structural Steel spec"
+    },
+    {
+      "source_filename": "Drawings.pdf",
+      "source_page": 14,
+      "sheet_number": "S-101",
+      "reason": "framing plan, beam marks B-1 through B-6"
+    }
+  ],
+
+  "finish_spec": "Hot-dip galvanized per ASTM A123, field-touch-up with Tnemec 530",
+  "connection_notes": "All connections bolted, A325 high-strength. Field welding prohibited except at stair stringer-to-landing.",
+
+  "ai_caveats": [
+    "Page 23 of Drawings.pdf is a scanned raster — I couldn't read member marks clearly."
+  ]
 }
 ```
 
 ### Field rules
 
-- `scope_summary` — plain English, 2–3 sentences, no jargon Gohar wouldn't
-  use. State what's actually being built and whether TCB metals are a
-  real piece of it.
-- `steel_metals_present` — `true` if the bid documents genuinely require
-  **structural steel, misc metals, handrails, railings, fencing, canopies,
-  or ornamental work**. A passing mention in a general-purpose spec doesn't
-  count; there must be a real scope.
-- `steel_metals_estimated_value_usd` — rough dollar estimate of **the
-  metals portion only**, not the whole project. `null` if you can't form
-  an opinion.
-- `risk_flags` — array from this fixed vocabulary only:
-  - `bonding_required`
-  - `prevailing_wage`
-  - `dbe_requirement`
-  - `pre_qualification_required`
-  - `davis_bacon`
-  - `union_only`
-  - `aws_certification_required`
-  - `aisc_certification_required`
-  - `pe_stamp_required`
-  - `insurance_above_standard`
-  - `performance_bond_above_100k`
-- `scope_exclusions` — free-text strings. Keep each one short, and only
-  list exclusions that would change our portion. Empty array if none.
-- `due_date_confirmed` — ISO date (YYYY-MM-DD). Only fill this if a date
-  is clearly stated in the PDFs (not just the scraper metadata). Otherwise
-  `null`.
-- `pre_bid_meeting` — ISO datetime if a pre-bid meeting or walkthrough
-  is mentioned in the documents. Otherwise `null`.
-- `location_address` — project physical address from the docs, or `null`.
-- `recommendation` — one of:
-  - `"bid"` — metals scope is real, no deal-breakers, fits TCB's range.
-    This is the only value that moves the opp to `qa_qualified`.
-  - `"pass"` — not a fit. Metals scope absent, or there's a
-    deal-breaker (AWS/AISC/PE requirement, out of dollar range by 10×,
-    clearly different trade).
-  - `"human_review_needed"` — ambiguous, partial info, or Colin
-    should weigh in. Use sparingly; prefer a decision.
-- `recommendation_reasoning` — 1–2 sentences. State the one or two things
-  that drove the decision.
-- `analyzed_at` — current UTC timestamp at the time you write the file.
+- **identified_members** — one entry per physically distinct member or
+  group of identical members. Use the GC's marks if visible. `quantity` +
+  `unit` should be enough for an estimator to price it out. If you can't
+  read it clearly, still list it and add a note ("mark unclear, best
+  guess"). Better to list a low-confidence item than silently drop it.
+- **kept_pages** — include EVERY page the estimator would need. If in
+  doubt, keep the page. Over-inclusion is much safer than dropping a
+  page with a critical detail.
+- **finish_spec** — hot-dip galvanized, shop primer, architectural
+  coating, mill finish, etc. Pull from general notes on S-series or
+  from Division 05 12 00 specs.
+- **connection_notes** — welded vs bolted, field vs shop, any special
+  AWS / AISC cert language (flag those in `risk_flags` too).
+- **ai_caveats** — explicit list of things you couldn't read or had to
+  guess. Colin uses this to decide if a human needs to review the package
+  before Gohar touches it.
+
+- `risk_flags` — ONLY values from this fixed list:
+  bonding_required, prevailing_wage, dbe_requirement,
+  pre_qualification_required, davis_bacon, union_only,
+  aws_certification_required, aisc_certification_required,
+  pe_stamp_required, insurance_above_standard,
+  performance_bond_above_100k
+- `recommendation` — `bid` | `pass` | `human_review_needed`.
 
 ### Recommendation heuristics
 
-Recommend **pass** when:
+**pass** when:
 - No structural/misc metals, handrails, fencing, or similar in scope.
-- Any of: AWS cert required, AISC cert required, PE stamp required.
-- Bid is far outside $10k–$1.5M range (e.g., $50M bridge project, $200
-  one-off repair).
-- Obviously a different trade (electrical-only, roofing-only, paving).
+- AWS cert required, AISC cert required, PE stamp required.
+- Bid is far outside $10k–$1.5M (TCB portion).
+- Commodity Division 10 (lockers, partitions, shelving) — ask yourself
+  "is this something you custom-fabricate?" If no, it's a pass.
+- Raw steel stock supply, not fabrication.
+- Project far outside WI/IL/IA/MN/IN (out-of-region penalty already
+  applied by the scorer, but still worth checking).
 
-Recommend **human_review_needed** when:
-- Metals scope is present but heavily mixed with other trades we'd have
-  to subcontract.
-- Documents are incomplete or illegible.
-- Unusual certifications we haven't seen before.
+**human_review_needed** when:
+- Metals scope exists but tightly coupled with other trades we'd sub out.
+- Documents incomplete or illegible (raster-scanned sheets, missing
+  attachments).
+- Unusual certifications or specs you've never seen before.
+- Border case — dollar / location / scope is right at the edge.
 
-Otherwise recommend **bid**. Bias slightly toward bid — Gohar will make
-the final call.
+Otherwise **bid**. Bias slightly toward bid — Colin makes the final call.
 
 ---
 
 ## Output format notes
 
-- Write strictly valid JSON. No trailing commas, no comments, no markdown
+- Strictly valid JSON. No trailing commas, no comments, no markdown
   fences around the file contents.
-- If a field doesn't apply, use `null` (not empty string, not `"N/A"`).
-- `risk_flags` and `scope_exclusions` are arrays — use `[]` if none.
+- Null for unknown, not `"N/A"` or `"unknown"`.
+- Arrays empty (`[]`) if none.
 
-When the whole batch is done, print a summary to the chat:
+When the whole batch is done, print a summary:
 
 ```
 Analyzed N opportunities:
   bid:                 X
   pass:                Y
   human_review_needed: Z
+Total identified members across batch: M
+Total kept pages across batch: P
 Next: run  node scripts/qa-commit.js
 ```

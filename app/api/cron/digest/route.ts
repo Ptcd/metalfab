@@ -7,6 +7,8 @@ const { runCleanup } = require('../../../../scripts/cleanup-storage');
 const { runSeedReminders } = require('../../../../scripts/seed-reminders');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { runCheckAwards } = require('../../../../scripts/check-awards');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { runWeeklyReport } = require('../../../../scripts/send-weekly-report');
 
 export const maxDuration = 60;
 
@@ -47,6 +49,7 @@ export async function GET(request: NextRequest) {
     await runStep('seed-reminders', runSeedReminders),
     await runStep('check-awards', runCheckAwards),
     await runStep('digest', runDigest),
+    await runStep('weekly-report', runWeeklyReport), // no-ops on non-Fridays
     await runStep('cleanup', runCleanup),
   ];
   return NextResponse.json({

@@ -99,6 +99,32 @@ export type QaRiskFlag =
   | 'insurance_above_standard'
   | 'performance_bond_above_100k';
 
+/**
+ * One identified structural / misc-metals item the AI pulled off the drawings
+ * or specs during QA. Used by the takeoff-QA skill to cross-check Gohar's
+ * Excel takeoff against what the GC actually specified.
+ */
+export interface IdentifiedMember {
+  kind: string;                 // 'beam' | 'column' | 'stair' | 'railing' | 'bollard' | 'misc_metal' | ...
+  mark: string | null;          // 'B-1', 'C-3', 'STR-01', etc.
+  size: string | null;          // 'W8x24', '4" sch 40', etc.
+  quantity: number | null;
+  unit: string | null;          // 'ea', 'lf', 'lb', 'tons'
+  notes: string | null;         // extras — finish, connections, exclusions
+  source_page: number | null;   // 1-indexed page of the kept-pages PDF
+}
+
+/**
+ * Page of the original bid package the AI kept as relevant to TCB's scope.
+ * qa-commit then builds a "filtered estimator package" PDF from these pages.
+ */
+export interface KeptPage {
+  source_filename: string;      // which doc the page came from
+  source_page: number;          // 1-indexed page in source doc
+  sheet_number: string | null;  // 'S-101', 'A-201', etc if visible
+  reason: string;               // short why-kept explanation
+}
+
 export interface QaReport {
   scope_summary: string;
   steel_metals_present: boolean;
@@ -111,6 +137,15 @@ export interface QaReport {
   recommendation: QaRecommendation;
   recommendation_reasoning: string;
   analyzed_at: string;
+
+  // NEW in v2 — added when Claude Code visually reads structural drawings.
+  // All optional so older reports still validate.
+  identified_members?: IdentifiedMember[];
+  kept_pages?: KeptPage[];
+  finish_spec?: string | null;       // e.g. "hot-dip galvanized, Tnemec paint"
+  connection_notes?: string | null;  // welded / bolted, field vs shop, etc.
+  ai_caveats?: string[];             // "couldn't read page 12 — scanned raster"
+  estimator_package_path?: string | null;  // storage path of the filtered PDF
 }
 
 export interface BidSubmission {

@@ -11,6 +11,7 @@ import { ScoreSignal } from "@/types/scoring";
 import { ScoreBadge } from "../../components/ScoreBadge";
 import { StatusBadge } from "../../components/StatusBadge";
 import { BidSubmitButton } from "./BidSubmitButton";
+import { RunTakeoffQaButton } from "./RunTakeoffQaButton";
 import { SendEmailButton } from "../../components/SendEmailButton";
 
 const allStatuses: OpportunityStatus[] = [
@@ -397,6 +398,70 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
                 </ul>
               </div>
             )}
+
+            {/* v2 fields: finish + connection notes + identified members */}
+            {(qaReport.finish_spec || qaReport.connection_notes) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-emerald-200 dark:border-emerald-900/40">
+                {qaReport.finish_spec && (
+                  <div>
+                    <span className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Finish</span>
+                    <p className="text-slate-800 dark:text-slate-200 text-sm">{qaReport.finish_spec}</p>
+                  </div>
+                )}
+                {qaReport.connection_notes && (
+                  <div>
+                    <span className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Connections</span>
+                    <p className="text-slate-800 dark:text-slate-200 text-sm">{qaReport.connection_notes}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(qaReport.identified_members?.length ?? 0) > 0 && (
+              <div className="pt-2 border-t border-emerald-200 dark:border-emerald-900/40">
+                <span className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                  Identified members ({qaReport.identified_members!.length})
+                </span>
+                <div className="mt-1 overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="text-slate-500 dark:text-slate-400">
+                      <tr>
+                        <th className="text-left py-1 pr-3">Kind</th>
+                        <th className="text-left py-1 pr-3">Mark</th>
+                        <th className="text-left py-1 pr-3">Size</th>
+                        <th className="text-right py-1 pr-3">Qty</th>
+                        <th className="text-left py-1 pr-3">Unit</th>
+                        <th className="text-left py-1">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-emerald-100 dark:divide-emerald-900/30">
+                      {qaReport.identified_members!.map((m, i) => (
+                        <tr key={i} className="text-slate-800 dark:text-slate-200">
+                          <td className="py-1 pr-3 font-medium">{m.kind}</td>
+                          <td className="py-1 pr-3 font-mono">{m.mark || "—"}</td>
+                          <td className="py-1 pr-3">{m.size || "—"}</td>
+                          <td className="py-1 pr-3 text-right">{m.quantity ?? "—"}</td>
+                          <td className="py-1 pr-3">{m.unit || "—"}</td>
+                          <td className="py-1 text-slate-600 dark:text-slate-400">{m.notes || ""}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {(qaReport.ai_caveats?.length ?? 0) > 0 && (
+              <div className="pt-2 border-t border-emerald-200 dark:border-emerald-900/40">
+                <span className="text-xs uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                  AI caveats
+                </span>
+                <ul className="list-disc list-inside text-slate-700 dark:text-slate-300 text-xs mt-1">
+                  {qaReport.ai_caveats!.map((c, i) => <li key={i}>{c}</li>)}
+                </ul>
+              </div>
+            )}
+
             <p className="text-xs text-slate-500 dark:text-slate-500">Analyzed {qaReport.analyzed_at}</p>
           </div>
         </div>
@@ -625,6 +690,11 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
             customerId={customer?.id ?? null}
             opportunityId={opp.id}
             buttonLabel="Email GC"
+          />
+          <RunTakeoffQaButton
+            oppId={opp.id}
+            hasTakeoff={documents.some((d) => d.category === "takeoff")}
+            hasQaReport={!!qaReport}
           />
           {saved && <span className="text-sm text-emerald-600 dark:text-emerald-400">Saved</span>}
         </div>

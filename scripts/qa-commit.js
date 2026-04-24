@@ -19,7 +19,8 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env.loc
 
 const fs = require('fs');
 const path = require('path');
-const { purgeOpportunityDocuments } = require('../lib/documents');
+const { purgeOpportunityDocuments, uploadToStorage } = require('../lib/documents');
+const { buildEstimatorPackage } = require('./qa-extract-pages');
 const { startRun, addStep, addError, finishRun } = require('../lib/system-runs');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -88,7 +89,7 @@ async function commitOne(oppId, report, { dryRun }) {
 
   // Load current status for event logging
   const curRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/opportunities?id=eq.${oppId}&select=status,raw_data`,
+    `${SUPABASE_URL}/rest/v1/opportunities?id=eq.${oppId}&select=status,raw_data,documents`,
     { headers: headers() }
   );
   const [current] = await curRes.json();
@@ -103,11 +104,48 @@ async function commitOne(oppId, report, { dryRun }) {
   else if (report.recommendation === 'pass') newStatus = 'qa_rejected';
   else { newStatus = 'awaiting_qa'; needsHuman = true; }
 
+  // Build the estimator package PDF from kept_pages (skip on pass — no point)
+  let estimatorPackagePath = null;
+  let estimatorPackagePageCount = 0;
+  if (!dryRun && report.recommendation !== 'pass' && Array.isArray(report.kept_pages) && report.kept_pages.length > 0) {
+    const oppDir = path.join(QUEUE_DIR, oppId);
+    try {
+      const built = await buildEstimatorPackage(oppDir, report);
+      if (built) {
+        const storagePath = `${oppId}/${built.filename}`;
+        await uploadToStorage(built.path, storagePath, 'application/pdf');
+        estimatorPackagePath = storagePath;
+        estimatorPackagePageCount = built.page_count;
+        fullReport.estimator_package_path = storagePath;
+
+        // Also append it to the opp.documents array as a `specification`
+        // category so it shows up in the Inbound section of the opp detail.
+        const existingDocs = Array.isArray(current.documents) ? current.documents : [];
+        const filtered = existingDocs.filter((d) => d.storage_path !== storagePath);
+        const stat = fs.statSync(built.path);
+        filtered.push({
+          filename: built.filename,
+          storage_path: storagePath,
+          downloaded_at: new Date().toISOString(),
+          file_size: stat.size,
+          mime_type: 'application/pdf',
+          category: 'specification',
+          uploaded_by: 'ai',
+          description: `Filtered estimator package — ${built.page_count} page${built.page_count === 1 ? '' : 's'} from ${new Set(built.kept_pages_embedded.map((p) => p.source_filename)).size} source doc(s)`,
+        });
+        current.documents = filtered;
+      }
+    } catch (e) {
+      console.log(`   ⚠️  estimator package build failed: ${e.message.slice(0, 100)}`);
+    }
+  }
+
   const patch = {
     qa_report: fullReport,
     qa_needs_human_review: needsHuman,
   };
   if (newStatus !== oldStatus) patch.status = newStatus;
+  if (estimatorPackagePath) patch.documents = current.documents;
 
   // also stash into raw_data.qa_report for backwards compatibility
   const rawData = current.raw_data && typeof current.raw_data === 'object'
@@ -117,7 +155,7 @@ async function commitOne(oppId, report, { dryRun }) {
 
   if (dryRun) {
     console.log(`   [dry-run] would set status=${newStatus}`);
-    return { newStatus, purged: 0 };
+    return { newStatus, purged: 0, estimator_pages: estimatorPackagePageCount };
   }
 
   await patchOpportunity(oppId, patch);
@@ -131,7 +169,7 @@ async function commitOne(oppId, report, { dryRun }) {
     purged = await purgeOpportunityDocuments(oppId);
   }
 
-  return { newStatus, purged };
+  return { newStatus, purged, estimator_pages: estimatorPackagePageCount };
 }
 
 async function main() {
@@ -176,7 +214,8 @@ async function main() {
       else if (result.newStatus === 'qa_rejected') passed++;
       else human++;
       totalPurged += result.purged;
-      console.log(`✅ ${oppId.slice(0, 8)} → ${result.newStatus}${result.purged ? ` (purged ${result.purged} docs)` : ''}`);
+      const pkg = result.estimator_pages ? ` · estimator pkg ${result.estimator_pages}p` : '';
+      console.log(`✅ ${oppId.slice(0, 8)} → ${result.newStatus}${result.purged ? ` (purged ${result.purged} docs)` : ''}${pkg}`);
       if (!dryRun) {
         fs.rmSync(path.join(QUEUE_DIR, oppId), { recursive: true, force: true });
       }

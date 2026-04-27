@@ -4,6 +4,10 @@
 -- current point estimates; the 2-hour interview will refine to ranges.
 -- All additive — existing data unchanged. Idempotent: safe to re-run.
 
+-- Required extensions (must precede any index that references their operator
+-- classes — otherwise CREATE INDEX fails and aborts the whole transaction).
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- ============================================================
 -- rate_card_versions — versioned $/hr, $/lb, factors. Each bid
 -- snapshots a version_id so historical bids stay reproducible.
@@ -78,9 +82,6 @@ CREATE TABLE IF NOT EXISTS steel_shapes (
 CREATE INDEX IF NOT EXISTS idx_steel_shapes_family ON steel_shapes (shape_family);
 CREATE INDEX IF NOT EXISTS idx_steel_shapes_designation_trgm
   ON steel_shapes USING gin (designation gin_trgm_ops);
-
--- gin_trgm_ops requires pg_trgm extension; enable if absent
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 ALTER TABLE steel_shapes ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Authenticated users can read steel_shapes" ON steel_shapes;

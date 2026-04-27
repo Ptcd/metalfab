@@ -38,4 +38,8 @@ scripts/debug-*.png
 
 # local QA queue (downloaded PDFs + reports, regenerated each run)
 /qa-queue/
+/takeoff-queue/
+/plan-intelligence/
+/tmp/
+scripts/__pycache__/
 .claude/settings.local.json

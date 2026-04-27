@@ -13,6 +13,7 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { BidSubmitButton } from "./BidSubmitButton";
 import { RunTakeoffQaButton } from "./RunTakeoffQaButton";
 import { SendEmailButton } from "../../components/SendEmailButton";
+import { uploadOneFile } from "@/lib/upload-document";
 
 const allStatuses: OpportunityStatus[] = [
   "new",
@@ -108,20 +109,10 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
     setUploading(true);
     try {
       for (const f of Array.from(files)) {
-        const fd = new FormData();
-        fd.append("file", f);
-        fd.append("category", uploadCategory);
-        const res = await fetch(`/api/opportunities/${opp.id}/documents`, {
-          method: "POST",
-          body: fd,
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          alert(`Upload failed (${f.name}): ${body.error || res.status}`);
-          continue;
+        const newDoc = await uploadOneFile(opp.id, f, uploadCategory);
+        if (newDoc) {
+          setOpp((prev) => ({ ...prev, documents: [...(prev.documents || []), newDoc] }));
         }
-        const { data: newDoc } = await res.json();
-        setOpp((prev) => ({ ...prev, documents: [...(prev.documents || []), newDoc] }));
       }
     } finally {
       setUploading(false);

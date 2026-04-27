@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Customer } from "@/types/opportunity";
+import { uploadOneFile } from "@/lib/upload-document";
 
 interface Props {
   onClose: () => void;
@@ -81,11 +82,8 @@ export function AddOpportunityModal({ onClose, initial }: Props) {
 
     const { data: opp } = await res.json();
 
-    // Upload each file
+    // Upload each file (uploadOneFile handles >4 MB via signed direct upload)
     for (const f of files) {
-      const fd = new FormData();
-      fd.append("file", f);
-      // Quick category guess from filename
       const lower = f.name.toLowerCase();
       let category: string = "general";
       if (/spec/.test(lower)) category = "specification";
@@ -95,13 +93,9 @@ export function AddOpportunityModal({ onClose, initial }: Props) {
       else if (/proposal|quote/.test(lower)) category = "proposal";
       else if (/takeoff/.test(lower)) category = "takeoff";
       else if (/shop.*drawing|submittal/.test(lower)) category = "shop_drawing";
-      fd.append("category", category);
 
-      const up = await fetch(`/api/opportunities/${opp.id}/documents`, {
-        method: "POST",
-        body: fd,
-      });
-      if (!up.ok) {
+      const result = await uploadOneFile(opp.id, f, category);
+      if (!result) {
         console.error("upload failed for", f.name);
       }
     }

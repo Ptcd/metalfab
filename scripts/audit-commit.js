@@ -82,12 +82,11 @@ function diffItems(expected, takeoffLines) {
   for (const [cat, items] of expectedByCat) {
     const tk = takeoffByCat.get(cat) || [];
     if (tk.length === 0) {
-      // Whole category missing
+      // Whole category missing — surface every expected item.
       for (const it of items) missing.push(it);
-    }
-    // If audit found multiple distinct items in same category but
-    // takeoff has only one line, surface the extras.
-    if (items.length > tk.length) {
+    } else if (items.length > tk.length) {
+      // Takeoff has the category but fewer distinct items than the
+      // audit expected. Surface the extras only (no double-push).
       for (const it of items.slice(tk.length)) missing.push(it);
     }
   }

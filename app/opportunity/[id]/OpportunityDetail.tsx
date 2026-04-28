@@ -14,6 +14,7 @@ import { BidSubmitButton } from "./BidSubmitButton";
 import { RunTakeoffQaButton } from "./RunTakeoffQaButton";
 import { SendEmailButton } from "../../components/SendEmailButton";
 import { uploadOneFile } from "@/lib/upload-document";
+import { TakeoffPanel } from "./TakeoffPanel";
 
 const allStatuses: OpportunityStatus[] = [
   "new",
@@ -457,6 +458,11 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
           </div>
         </div>
       )}
+
+      {/* Takeoff + audit + scenarios */}
+      <div className="mb-6">
+        <TakeoffPanel opportunityId={opp.id} />
+      </div>
 
       {/* Documents */}
       <div className="mb-6">

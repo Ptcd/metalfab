@@ -76,6 +76,16 @@ interface TakeoffData {
   };
 }
 
+interface ProposalRow {
+  id: string;
+  proposal_number: string;
+  bid_total_usd: number;
+  storage_path: string;
+  filename: string;
+  generated_at: string;
+  status: string;
+}
+
 const fmt$ = (v: number | null | undefined) =>
   v == null ? '—' : `$${Math.round(v).toLocaleString()}`;
 
@@ -96,20 +106,39 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
   const [data, setData] = useState<TakeoffData | null>(null);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [proposal, setProposal] = useState<ProposalRow | null>(null);
   const [selected, setSelected] = useState<'conservative' | 'expected' | 'aggressive'>('expected');
 
   useEffect(() => {
     let active = true;
     (async () => {
-      const res = await fetch(`/api/opportunities/${opportunityId}/takeoff`);
-      const body = await res.json().catch(() => ({}));
+      const [tRes, pRes] = await Promise.all([
+        fetch(`/api/opportunities/${opportunityId}/takeoff`),
+        fetch(`/api/opportunities/${opportunityId}/proposal`),
+      ]);
+      const tBody = await tRes.json().catch(() => ({}));
+      const pBody = await pRes.json().catch(() => ({}));
       if (active) {
-        setData(body.data);
+        setData(tBody.data);
+        setProposal(pBody.data);
         setLoading(false);
       }
     })();
     return () => { active = false; };
   }, [opportunityId]);
+
+  async function generate() {
+    setGenerating(true);
+    const res = await fetch(`/api/opportunities/${opportunityId}/proposal/generate`, { method: 'POST' });
+    setGenerating(false);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(`Generate failed: ${body.error || res.status}`);
+      return;
+    }
+    setProposal(body.data);
+  }
 
   if (loading) return <div className="text-sm text-slate-500 italic">Loading takeoff…</div>;
   if (!data) return null;
@@ -208,8 +237,40 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
         </div>
       )}
       {run.status === 'approved' && (
-        <div className="text-sm text-green-700 dark:text-green-300">
-          ✓ Takeoff approved. Bid total: {fmt$(run.bid_total_usd)}.
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-sm text-green-700 dark:text-green-300">
+            ✓ Takeoff approved. Bid total: {fmt$(run.bid_total_usd)}.
+          </span>
+          {!proposal && (
+            <button
+              type="button"
+              onClick={generate}
+              disabled={generating}
+              className="px-3 py-1 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+            >
+              {generating ? 'Generating…' : 'Generate proposal PDF'}
+            </button>
+          )}
+          {proposal && (
+            <a
+              href={`/api/documents/${proposal.storage_path}`}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1 text-sm rounded bg-slate-700 hover:bg-slate-800 text-white"
+            >
+              Download {proposal.proposal_number}
+            </a>
+          )}
+          {proposal && (
+            <button
+              type="button"
+              onClick={generate}
+              disabled={generating}
+              className="px-3 py-1 text-sm rounded border border-slate-300 hover:bg-slate-100 text-slate-700 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-800 disabled:opacity-50"
+            >
+              {generating ? 'Regenerating…' : 'Regenerate'}
+            </button>
+          )}
         </div>
       )}
 

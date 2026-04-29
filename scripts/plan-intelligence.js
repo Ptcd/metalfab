@@ -59,12 +59,14 @@ async function downloadDoc(oppId, filename) {
 }
 
 async function upsertDigest(oppId, digest) {
-  const url = `${SUPABASE_URL}/rest/v1/plan_intelligence`;
+  // PostgREST upsert: needs on_conflict param to know which uniq key
+  // to dedupe on. Without it, a second run for the same opp 409s.
+  const url = `${SUPABASE_URL}/rest/v1/plan_intelligence?on_conflict=opportunity_id`;
   const body = [{
     opportunity_id: oppId,
     digest,
     summary: digest.summary,
-    ready_for_takeoff: digest.summary.ready_for_takeoff,
+    ready_for_takeoff: digest.summary.readiness === 'ready_for_takeoff',
     generated_at: digest.generated_at,
   }];
   const res = await fetch(url, {

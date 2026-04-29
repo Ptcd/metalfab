@@ -89,30 +89,44 @@ export interface ScenarioLineDetail {
 
 /**
  * Confidence → contingency multiplier on top of base subtotal.
- * Conservative pads more aggressively at low confidence; Aggressive
- * trusts the LLM. Expected sits in the middle.
+ * Conservative pads, Aggressive trims, Expected sits in the middle.
+ *
+ * Tuned so that Conservative stays within ~1.4× of Expected and
+ * Aggressive within ~0.75×, which matches how real estimators
+ * actually spread three-scenario bids. Wider spreads look noisy and
+ * make Colin discount the system's output.
  */
 function contingencyMultiplier(confidence: number, scenario: 'conservative' | 'expected' | 'aggressive'): number {
   const base =
     confidence >= 0.9 ? 0.0
-      : confidence >= 0.8 ? 0.03
-      : confidence >= 0.7 ? 0.07
-      : confidence >= 0.6 ? 0.12
-      : 0.20;
-  if (scenario === 'conservative') return base * 1.5;
+      : confidence >= 0.8 ? 0.02
+      : confidence >= 0.7 ? 0.05
+      : confidence >= 0.6 ? 0.08
+      : 0.12;
+  if (scenario === 'conservative') return base * 1.25;
   if (scenario === 'aggressive')   return base * 0.5;
   return base;
 }
 
+/**
+ * Quantity band picker. Conservative blends point + max (70/30) so
+ * full quantity_max swings don't dominate the spread; Aggressive
+ * blends point + min (70/30); Expected uses the point.
+ */
 function pickQuantity(line: TakeoffLine, scenario: 'conservative' | 'expected' | 'aggressive'): number {
-  if (scenario === 'conservative' && line.quantity_max != null) return Number(line.quantity_max);
-  if (scenario === 'aggressive' && line.quantity_min != null) return Number(line.quantity_min);
-  return Number(line.quantity);
+  const point = Number(line.quantity);
+  if (scenario === 'conservative' && line.quantity_max != null) {
+    return point * 0.7 + Number(line.quantity_max) * 0.3;
+  }
+  if (scenario === 'aggressive' && line.quantity_min != null) {
+    return point * 0.7 + Number(line.quantity_min) * 0.3;
+  }
+  return point;
 }
 
 function laborMultiplier(scenario: 'conservative' | 'expected' | 'aggressive'): number {
-  if (scenario === 'conservative') return 1.15;
-  if (scenario === 'aggressive')   return 0.90;
+  if (scenario === 'conservative') return 1.08;
+  if (scenario === 'aggressive')   return 0.95;
   return 1.0;
 }
 

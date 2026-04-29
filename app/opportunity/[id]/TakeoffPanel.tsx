@@ -1,21 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-
-interface ScenarioResult {
-  label: 'conservative' | 'expected' | 'aggressive';
-  total_weight_lbs: number;
-  material_subtotal_usd: number;
-  labor_subtotal_usd: number;
-  finish_subtotal_usd: number;
-  contingency_usd: number;
-  subtotal_usd: number;
-  overhead_usd: number;
-  profit_usd: number;
-  bid_total_usd: number;
-  margin_percent: number;
-}
+import { computeScenarios, RateCard, TakeoffLine as ScenarioInputLine } from "@/lib/takeoff/scenarios";
+import { EditableLinesTable, EditableLine } from "./EditableLinesTable";
 
 interface TakeoffRun {
   id: string;
@@ -28,21 +16,6 @@ interface TakeoffRun {
   confidence_avg: number | null;
   flagged_lines_count: number;
   notes: string | null;
-}
-
-interface TakeoffLine {
-  line_no: number;
-  category: string;
-  description: string;
-  quantity: number;
-  quantity_unit: string;
-  total_weight_lbs: number | null;
-  ironworker_hrs: number | null;
-  finish: string | null;
-  line_total_usd: number | null;
-  confidence: number;
-  flagged_for_review: boolean;
-  assumptions: string | null;
 }
 
 interface AuditFinding {
@@ -63,17 +36,6 @@ interface AuditRow {
   info_count: number;
   findings: AuditFinding[];
   missing_items: { category: string; description: string }[];
-}
-
-interface TakeoffData {
-  run: TakeoffRun;
-  lines: TakeoffLine[];
-  audit: AuditRow | null;
-  scenarios: {
-    conservative: ScenarioResult;
-    expected: ScenarioResult;
-    aggressive: ScenarioResult;
-  };
 }
 
 interface ProposalRow {
@@ -103,11 +65,15 @@ const SEVERITY_STYLE: Record<string, string> = {
 
 export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
   const router = useRouter();
-  const [data, setData] = useState<TakeoffData | null>(null);
+  const [run, setRun] = useState<TakeoffRun | null>(null);
+  const [lines, setLines] = useState<EditableLine[]>([]);
+  const [audit, setAudit] = useState<AuditRow | null>(null);
+  const [rate, setRate] = useState<RateCard | null>(null);
+  const [proposal, setProposal] = useState<ProposalRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [proposal, setProposal] = useState<ProposalRow | null>(null);
+  const [reopening, setReopening] = useState(false);
   const [selected, setSelected] = useState<'conservative' | 'expected' | 'aggressive'>('expected');
 
   useEffect(() => {
@@ -119,14 +85,65 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
       ]);
       const tBody = await tRes.json().catch(() => ({}));
       const pBody = await pRes.json().catch(() => ({}));
-      if (active) {
-        setData(tBody.data);
-        setProposal(pBody.data);
-        setLoading(false);
+      if (!active) return;
+      if (tBody.data) {
+        setRun(tBody.data.run);
+        setLines(tBody.data.lines);
+        setAudit(tBody.data.audit);
+        setRate(tBody.data.rate_card);
       }
+      setProposal(pBody.data || null);
+      setLoading(false);
     })();
     return () => { active = false; };
   }, [opportunityId]);
+
+  // Recompute scenarios from current lines + rate card whenever either changes
+  const scenarios = useMemo(() => {
+    if (!rate) return null;
+    return computeScenarios(lines as unknown as ScenarioInputLine[], rate);
+  }, [lines, rate]);
+
+  if (loading) return <div className="text-sm text-slate-500 italic">Loading takeoff…</div>;
+  if (!run || !scenarios) return null;
+
+  const readOnly = run.status === 'approved' || run.status === 'submitted';
+
+  async function approve() {
+    if (!run || !scenarios) return;
+    setApproving(true);
+    const bid = scenarios[selected].bid_total_usd;
+    const res = await fetch(`/api/opportunities/${opportunityId}/takeoff/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ run_id: run.id, scenario: selected, bid_total_usd: bid }),
+    });
+    setApproving(false);
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      alert(`Approve failed: ${e.error || res.status}`);
+      return;
+    }
+    router.refresh();
+    setRun({ ...run, status: 'approved', bid_total_usd: bid });
+  }
+
+  async function reopenForEdit() {
+    if (!run) return;
+    setReopening(true);
+    const res = await fetch(`/api/opportunities/${opportunityId}/takeoff/reopen`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ run_id: run.id }),
+    });
+    setReopening(false);
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      alert(`Reopen failed: ${e.error || res.status}`);
+      return;
+    }
+    setRun({ ...run, status: 'draft' });
+  }
 
   async function generate() {
     setGenerating(true);
@@ -140,26 +157,35 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
     setProposal(body.data);
   }
 
-  if (loading) return <div className="text-sm text-slate-500 italic">Loading takeoff…</div>;
-  if (!data) return null;
-  const { run, lines, audit, scenarios } = data;
+  function onLinesChange(nextLines: EditableLine[], nextRun: Record<string, unknown>) {
+    setLines(nextLines);
+    setRun({ ...run!, ...(nextRun as unknown as Partial<TakeoffRun>) } as TakeoffRun);
+  }
 
-  async function approve() {
-    if (!data) return;
-    setApproving(true);
-    const bid = data.scenarios[selected].bid_total_usd;
-    const res = await fetch(`/api/opportunities/${opportunityId}/takeoff/approve`, {
+  // Spec-listed missing categories from the audit get a one-click add
+  function addMissingItem(category: string, description: string) {
+    fetch(`/api/opportunities/${opportunityId}/takeoff/lines`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ run_id: run.id, scenario: selected, bid_total_usd: bid }),
-    });
-    setApproving(false);
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      alert(`Approve failed: ${e.error || res.status}`);
-      return;
-    }
-    router.refresh();
+      body: JSON.stringify({
+        run_id: run!.id,
+        category,
+        description,
+        quantity: 1,
+        quantity_unit: 'EA',
+        confidence: 0.5,
+        flagged_for_review: true,
+        source_kind: 'audit',
+        source_evidence: 'Added from audit missing-items list',
+      }),
+    })
+      .then(async (r) => {
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) { alert(`Add failed: ${body.error || r.status}`); return; }
+        setLines(body.data.lines as EditableLine[]);
+        setRun({ ...run!, ...(body.data.run as unknown as Partial<TakeoffRun>) } as TakeoffRun);
+      })
+      .catch((e) => alert(`Add failed: ${e.message}`));
   }
 
   return (
@@ -218,8 +244,8 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
         })}
       </div>
 
-      {/* Approve action */}
-      {run.status !== 'approved' && (
+      {/* Approve / proposal action */}
+      {!readOnly && (
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -236,10 +262,10 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
           )}
         </div>
       )}
-      {run.status === 'approved' && (
+      {readOnly && (
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-sm text-green-700 dark:text-green-300">
-            ✓ Takeoff approved. Bid total: {fmt$(run.bid_total_usd)}.
+            ✓ Takeoff {run.status}. Bid total: {fmt$(run.bid_total_usd)}.
           </span>
           {!proposal && (
             <button
@@ -271,6 +297,14 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
               {generating ? 'Regenerating…' : 'Regenerate'}
             </button>
           )}
+          <button
+            type="button"
+            onClick={reopenForEdit}
+            disabled={reopening}
+            className="px-3 py-1 text-sm rounded border border-slate-300 hover:bg-slate-100 text-slate-700 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-800 disabled:opacity-50"
+          >
+            {reopening ? 'Reopening…' : 'Reopen for edit'}
+          </button>
         </div>
       )}
 
@@ -303,9 +337,20 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
           {audit.missing_items.length > 0 && (
             <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
               <div className="text-xs font-semibold uppercase text-slate-500 mb-2">Missing categories detected by diff</div>
-              <ul className="text-sm text-slate-700 dark:text-slate-300 space-y-1">
+              <ul className="text-sm text-slate-700 dark:text-slate-300 space-y-2">
                 {audit.missing_items.map((m, i) => (
-                  <li key={i}>• [{m.category}] {m.description}</li>
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="flex-1">• [{m.category}] {m.description}</span>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => addMissingItem(m.category, m.description)}
+                        className="text-xs px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        Add to takeoff
+                      </button>
+                    )}
+                  </li>
                 ))}
               </ul>
             </div>
@@ -313,49 +358,22 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
         </details>
       )}
 
-      {/* Line items */}
-      <details className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-        <summary className="cursor-pointer text-sm font-semibold text-slate-900 dark:text-white">
-          Line items ({lines.length})
-        </summary>
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
-              <tr>
-                <th className="text-left py-2 pr-2">#</th>
-                <th className="text-left py-2 pr-2">Item</th>
-                <th className="text-right py-2 pr-2">Qty</th>
-                <th className="text-right py-2 pr-2">Wt (lbs)</th>
-                <th className="text-right py-2 pr-2">IW hrs</th>
-                <th className="text-left py-2 pr-2">Finish</th>
-                <th className="text-right py-2 pr-2">Line $</th>
-                <th className="text-right py-2 pr-2">Conf</th>
-              </tr>
-            </thead>
-            <tbody className="text-slate-700 dark:text-slate-300">
-              {lines.map((l) => (
-                <tr key={l.line_no} className={`border-b border-slate-100 dark:border-slate-800 ${l.flagged_for_review ? 'bg-amber-50 dark:bg-amber-900/10' : ''}`}>
-                  <td className="py-2 pr-2 font-mono">{l.line_no}</td>
-                  <td className="py-2 pr-2">
-                    <div className="font-medium">{l.category}</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-md">{l.description}</div>
-                  </td>
-                  <td className="py-2 pr-2 text-right whitespace-nowrap">{l.quantity} {l.quantity_unit}</td>
-                  <td className="py-2 pr-2 text-right">{l.total_weight_lbs?.toFixed(0) ?? '—'}</td>
-                  <td className="py-2 pr-2 text-right">{l.ironworker_hrs?.toFixed(0) ?? '—'}</td>
-                  <td className="py-2 pr-2">{l.finish ?? '—'}</td>
-                  <td className="py-2 pr-2 text-right font-mono">{fmt$(l.line_total_usd)}</td>
-                  <td className="py-2 pr-2 text-right">
-                    <span className={l.confidence < 0.5 ? 'text-red-600 dark:text-red-400' : l.confidence < 0.7 ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}>
-                      {Math.round(l.confidence * 100)}%
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Editable line items */}
+      <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-semibold text-slate-900 dark:text-white">
+            Line items ({lines.length})
+            {readOnly && <span className="ml-2 text-xs text-slate-500">read-only</span>}
+          </h4>
         </div>
-      </details>
+        <EditableLinesTable
+          lines={lines}
+          runId={run.id}
+          opportunityId={opportunityId}
+          readOnly={readOnly}
+          onLinesChange={onLinesChange}
+        />
+      </div>
     </div>
   );
 }

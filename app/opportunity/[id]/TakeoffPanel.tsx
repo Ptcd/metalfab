@@ -48,6 +48,23 @@ interface ProposalRow {
   status: string;
 }
 
+interface RFIItem {
+  rfi_no: number;
+  line_no: number;
+  category: string;
+  topic: string;
+  question: string;
+  context: string;
+  source_cited: string;
+  asked_for: string;
+  copy_text: string;
+}
+
+interface RFIBundle {
+  rfis: RFIItem[];
+  formatted_list: string;
+}
+
 const fmt$ = (v: number | null | undefined) =>
   v == null ? '—' : `$${Math.round(v).toLocaleString()}`;
 
@@ -75,16 +92,20 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
   const [generating, setGenerating] = useState(false);
   const [reopening, setReopening] = useState(false);
   const [selected, setSelected] = useState<'conservative' | 'expected' | 'aggressive'>('expected');
+  const [rfis, setRfis] = useState<RFIBundle | null>(null);
+  const [copiedRfi, setCopiedRfi] = useState(false);
 
   useEffect(() => {
     let active = true;
     (async () => {
-      const [tRes, pRes] = await Promise.all([
+      const [tRes, pRes, rRes] = await Promise.all([
         fetch(`/api/opportunities/${opportunityId}/takeoff`),
         fetch(`/api/opportunities/${opportunityId}/proposal`),
+        fetch(`/api/opportunities/${opportunityId}/takeoff/rfi`),
       ]);
       const tBody = await tRes.json().catch(() => ({}));
       const pBody = await pRes.json().catch(() => ({}));
+      const rBody = await rRes.json().catch(() => ({}));
       if (!active) return;
       if (tBody.data) {
         setRun(tBody.data.run);
@@ -93,10 +114,28 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
         setRate(tBody.data.rate_card);
       }
       setProposal(pBody.data || null);
+      setRfis(rBody.data || null);
       setLoading(false);
     })();
     return () => { active = false; };
   }, [opportunityId]);
+
+  async function refreshRfis() {
+    const r = await fetch(`/api/opportunities/${opportunityId}/takeoff/rfi`);
+    const body = await r.json().catch(() => ({}));
+    setRfis(body.data || null);
+  }
+
+  async function copyAllRfis() {
+    if (!rfis?.formatted_list) return;
+    try {
+      await navigator.clipboard.writeText(rfis.formatted_list);
+      setCopiedRfi(true);
+      setTimeout(() => setCopiedRfi(false), 2500);
+    } catch {
+      alert('Copy failed — your browser blocked clipboard access.');
+    }
+  }
 
   // Recompute scenarios from current lines + rate card whenever either changes
   const scenarios = useMemo(() => {
@@ -160,6 +199,8 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
   function onLinesChange(nextLines: EditableLine[], nextRun: Record<string, unknown>) {
     setLines(nextLines);
     setRun({ ...run!, ...(nextRun as unknown as Partial<TakeoffRun>) } as TakeoffRun);
+    // Re-fetch RFIs since confidence / flagged-for-review may have changed
+    refreshRfis();
   }
 
   // Spec-listed missing categories from the audit get a one-click add
@@ -355,6 +396,46 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
               </ul>
             </div>
           )}
+        </details>
+      )}
+
+      {/* Auto-drafted RFI questions for the GC */}
+      {rfis && rfis.rfis.length > 0 && (
+        <details open className="border border-amber-200 dark:border-amber-900 rounded-lg p-4 bg-amber-50/50 dark:bg-amber-950/10">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900 dark:text-white flex items-center justify-between flex-wrap gap-2">
+            <span>
+              Questions for the GC ({rfis.rfis.length})
+              <span className="ml-2 text-xs font-normal text-slate-500">
+                — auto-drafted from items below 70% confidence or flagged for review
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); copyAllRfis(); }}
+              className="px-3 py-1 text-xs rounded bg-amber-600 hover:bg-amber-700 text-white font-medium"
+            >
+              {copiedRfi ? '✓ Copied' : 'Copy all to clipboard'}
+            </button>
+          </summary>
+          <ol className="mt-3 space-y-3">
+            {rfis.rfis.map((q) => (
+              <li key={q.rfi_no} className="border-l-2 border-amber-400 pl-3 py-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-xs text-slate-500">Q{q.rfi_no}</span>
+                  <span className="font-mono text-xs text-slate-500">→ line {q.line_no}</span>
+                  <span className="font-mono text-xs text-slate-500">[{q.category}]</span>
+                  <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">{q.topic}</span>
+                </div>
+                <p className="text-sm mt-1 text-slate-700 dark:text-slate-300">{q.context}</p>
+                <p className="text-sm mt-1 italic text-blue-700 dark:text-blue-300">→ {q.asked_for}</p>
+                <p className="text-xs mt-1 text-slate-400">Source cited: {q.source_cited}</p>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+            Click <b>Copy all to clipboard</b> to paste this list into Camosy&apos;s Ariba portal, Bonfire, or an email to the GC.
+            As Thomas edits the takeoff above (changes a quantity, removes a line), questions update automatically.
+          </p>
         </details>
       )}
 

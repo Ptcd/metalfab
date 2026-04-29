@@ -48,6 +48,36 @@ const TEXT_COLOR = rgb(0.12, 0.16, 0.22);
 const ACCENT     = rgb(0.10, 0.32, 0.62);
 const MUTED      = rgb(0.40, 0.45, 0.55);
 
+/**
+ * pdf-lib's StandardFonts (Helvetica/Times/Courier) only encode WinAnsi.
+ * Construction specs are full of non-WinAnsi glyphs — smart quotes, em
+ * dashes, approximation symbols, primes, en spaces — that crash the
+ * renderer. Map common offenders to ASCII before drawing. Anything still
+ * non-ASCII gets stripped (better than crashing the whole proposal).
+ */
+const UNICODE_MAP: Record<string, string> = {
+  '\u2018': "'", '\u2019': "'", '\u201A': ',', '\u201B': "'",
+  '\u201C': '"', '\u201D': '"', '\u201E': '"', '\u201F': '"',
+  '\u2013': '-', '\u2014': '-', '\u2015': '-',
+  '\u2026': '...', '\u2022': '*',
+  '\u00A0': ' ', '\u2009': ' ', '\u200A': ' ', '\u2003': ' ', '\u2002': ' ',
+  '\u2032': "'", '\u2033': '"',
+  '\u2248': '~', '\u2260': '!=', '\u2265': '>=', '\u2264': '<=',
+  '\u00B1': '+/-', '\u00D7': 'x', '\u00F7': '/',
+  '\u00B0': 'deg', '\u00BD': '1/2', '\u00BC': '1/4', '\u00BE': '3/4',
+  '\u2192': '->', '\u2190': '<-', '\u00A9': '(c)', '\u00AE': '(R)', '\u2122': '(TM)',
+};
+
+function toAscii(s: string | null | undefined): string {
+  if (!s) return '';
+  let out = s;
+  for (const [k, v] of Object.entries(UNICODE_MAP)) {
+    out = out.split(k).join(v);
+  }
+  // Strip remaining non-WinAnsi (anything outside basic Latin + Latin-1 supplement)
+  return out.replace(/[^\x00-\xFF]/g, '');
+}
+
 interface Layout {
   pdf: PDFDocument;
   page: PDFPage;
@@ -97,7 +127,11 @@ function drawTextBlock(layout: Layout, text: string, opts: {
   const lineGap = opts.lineGap ?? 3;
   const maxWidth = opts.maxWidth ?? PAGE_WIDTH - 2 * MARGIN_X;
 
-  for (const paragraph of text.split('\n')) {
+  // Sanitize once up front so wrap()'s widthOfTextAtSize doesn't choke
+  // on non-WinAnsi characters either.
+  const safe = toAscii(text);
+
+  for (const paragraph of safe.split('\n')) {
     const lines = wrap(paragraph, font, size, maxWidth);
     for (const line of lines) {
       layout = ensureSpace(layout, size + lineGap + 2);
@@ -117,7 +151,7 @@ function drawTextBlock(layout: Layout, text: string, opts: {
 function drawSectionHeading(layout: Layout, text: string): Layout {
   layout = ensureSpace(layout, 26);
   layout.y -= 8;
-  layout.page.drawText(text.toUpperCase(), {
+  layout.page.drawText(toAscii(text).toUpperCase(), {
     x: MARGIN_X,
     y: layout.y - 11,
     size: 11,
@@ -202,14 +236,14 @@ function drawHeader(layout: Layout, input: ProposalInput): Layout {
 
   let my = layout.y - 36;
   for (const [k, v] of meta) {
-    layout.page.drawText(k, {
+    layout.page.drawText(toAscii(k), {
       x: MARGIN_X,
       y: my,
       size: 9,
       font: layout.bold,
       color: MUTED,
     });
-    layout.page.drawText(v, {
+    layout.page.drawText(toAscii(v), {
       x: MARGIN_X + 110,
       y: my,
       size: 10,

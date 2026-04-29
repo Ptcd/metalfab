@@ -143,6 +143,15 @@ export async function updateLine(
   }
 
   const merged = { ...(before as LineRow), ...safePatch };
+  // Only recompute weight when a weight-affecting field changed. Otherwise
+  // some takeoff rows where unit_weight_unit and quantity_unit don't pair
+  // cleanly (e.g. lintels stored as quantity_unit='EA' but unit_weight_unit
+  // ='lb/ft' because each EA is N linear ft) get clobbered when an
+  // unrelated field like fab_hrs is edited.
+  const WEIGHT_FIELDS = new Set(['quantity', 'quantity_unit', 'unit_weight', 'unit_weight_unit', 'total_weight_lbs']);
+  const weightFieldChanged = Object.keys(safePatch).some((k) => WEIGHT_FIELDS.has(k));
+  const carryWeight = !weightFieldChanged ? (before as LineRow).total_weight_lbs : (merged.total_weight_lbs as number | null);
+
   const rate = await loadRateCard(supabase, (before as LineRow).takeoff_run_id);
   const priced = priceLine(
     {
@@ -150,7 +159,7 @@ export async function updateLine(
       quantity_unit: String(merged.quantity_unit),
       unit_weight: merged.unit_weight as number | null,
       unit_weight_unit: merged.unit_weight_unit as string | null,
-      total_weight_lbs: merged.total_weight_lbs as number | null,
+      total_weight_lbs: carryWeight,
       material_grade: merged.material_grade as string | null,
       fab_hrs: merged.fab_hrs as number | null,
       det_hrs: merged.det_hrs as number | null,
@@ -161,6 +170,29 @@ export async function updateLine(
     },
     rate,
   );
+
+  // Preserve the carried-forward weight if no weight field changed
+  // (priceLine() always recomputes from qty × unit_weight, which can
+  // diverge from the LLM-supplied total_weight_lbs when unit pairings
+  // don't match the formula's expected combos). Recompute downstream
+  // costs against the carried weight.
+  if (!weightFieldChanged && carryWeight != null) {
+    priced.total_weight_lbs = carryWeight;
+    const matRate =
+      merged.material_grade && /STAINLESS|316|304/i.test(String(merged.material_grade))
+        ? Number(rate.stainless_per_lb)
+        : Number(rate.steel_per_lb);
+    priced.material_cost_usd = carryWeight * matRate;
+    if (merged.finish === 'galvanized') {
+      priced.finish_cost_usd = carryWeight * Number(rate.galv_per_lb);
+    } else if (merged.finish === 'shop_primer' || merged.finish === 'powder_coat') {
+      priced.finish_cost_usd = (priced.material_cost_usd || 0) * Number(rate.paint_factor);
+    } else {
+      priced.finish_cost_usd = 0;
+    }
+    priced.line_total_usd =
+      (priced.material_cost_usd || 0) + (priced.labor_cost_usd || 0) + (priced.finish_cost_usd || 0);
+  }
 
   const { data: updated, error: updErr } = await supabase
     .from('takeoff_lines')

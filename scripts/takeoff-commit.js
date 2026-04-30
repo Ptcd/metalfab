@@ -17,6 +17,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env.loc
 
 const fs = require('fs');
 const path = require('path');
+const { computeConfidence } = require('../lib/takeoff/confidence');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -269,7 +270,20 @@ async function main() {
       material_cost_usd: priced.material_cost_usd,
       labor_cost_usd: priced.labor_cost_usd,
       line_total_usd: priced.line_total_usd,
-      confidence: Number(l.confidence),
+      confidence: computeConfidence({
+        source_kind: l.source_kind,
+        source_section: l.source_section,
+        source_page: l.source_page,
+        source_evidence: l.source_evidence,
+        quantity_band: l.quantity_band,
+        quantity_min: l.quantity_min,
+        quantity_max: l.quantity_max,
+        quantity: Number(l.quantity),
+        steel_shape_designation: l.steel_shape_designation,
+        unit_weight: l.unit_weight,
+        from_schedule: l.from_schedule === true,
+        corroborating_sources: l.corroborating_sources,
+      }),
       flagged_for_review: !!l.flagged_for_review,
       assumptions: l.assumptions || null,
       notes: l.notes || null,

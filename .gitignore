@@ -41,6 +41,8 @@ scripts/__pycache__/
 /qa-queue/
 /takeoff-queue/
 /audit-queue/
+/arbitrate-queue/
+/vision-queue/
 /plan-intelligence/
 /tmp/
 scripts/__pycache__/

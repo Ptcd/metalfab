@@ -327,12 +327,44 @@ async function main() {
   // Coarse building-type guess from opp title or stage
   const buildingType = 'small_commercial_renovation';
 
+  // Equipment-schedule categories: when both demo notes AND equipment
+  // schedule list a category, the demo-vs-new validator treats it as
+  // replacement scope (keep, not exclude).
+  const equipmentScheduleCategories = (() => {
+    const cats = new Set();
+    const items = piForValidate?.summary?.equipment_schedule_summary?.tcb_relevant_items || [];
+    for (const it of items) {
+      const desc = String(it.description || '').toLowerCase();
+      if (/bollard/.test(desc)) cats.add('bollard');
+      if (/lintel/.test(desc)) cats.add('lintel');
+      if (/railing|handrail|guardrail/.test(desc)) cats.add('handrail');
+      if (/ladder/.test(desc)) cats.add('ladder');
+      if (/embed/.test(desc)) cats.add('embed');
+    }
+    return [...cats];
+  })();
+
+  // SOW-stated project SF (e.g., "5,000 SF interior renovation") for
+  // density sanity check
+  const projectSf = (() => {
+    const inclusion = (piForValidate?.summary?.sow_parsed?.explicit_inclusions || []).join(' ');
+    const m = inclusion.match(/([\d,]+)\s*(?:sq[.\s]?ft\.?|sf\b|square\s+feet)/i);
+    return m ? Number(m[1].replace(/,/g, '')) : null;
+  })();
+
+  // Sum weight for density check (run-level)
+  const totalWeightLbs = enrichedLines.reduce((a, l) => a + Number(l.total_weight_lbs || 0), 0);
+
   const validation = validateLines(enrichedLines, {
     fullText: docText,
     scheduleCounts,
     priors: priorsAll,
     industryPriors,
     buildingType,
+    equipmentScheduleCategories,
+    tcbSections: piForValidate?.summary?.tcb_sections || [],
+    totalWeightLbs,
+    projectSf,
   });
   if (validation.findings.length > 0) {
     console.log(`\n--- Validation findings (${validation.findings.length}) ---`);

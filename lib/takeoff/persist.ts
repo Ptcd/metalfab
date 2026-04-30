@@ -9,6 +9,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { priceLine, rollup, RateCard, RunLine } from './price-line';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { computeConfidence } = require('./confidence');
 
 interface LineRow extends Record<string, unknown> {
   id: string;
@@ -194,9 +196,29 @@ export async function updateLine(
       (priced.material_cost_usd || 0) + (priced.labor_cost_usd || 0) + (priced.finish_cost_usd || 0);
   }
 
+  // Recompute deterministic confidence from the post-patch line state.
+  // Replaces whatever confidence the LLM (or a previous edit) supplied
+  // unless the patch itself explicitly set confidence — in which case
+  // honor the human override (Thomas can lock a value he's sure of).
+  const explicitlyOverrode = Object.prototype.hasOwnProperty.call(safePatch, 'confidence');
+  const computedConfidence = explicitlyOverrode
+    ? Number(safePatch.confidence)
+    : computeConfidence({
+        source_kind: merged.source_kind as string | null,
+        source_section: merged.source_section as string | null,
+        source_page: merged.source_page as number | null,
+        source_evidence: merged.source_evidence as string | null,
+        quantity_band: merged.quantity_band as string | null,
+        quantity_min: merged.quantity_min as number | null,
+        quantity_max: merged.quantity_max as number | null,
+        quantity: merged.quantity as number,
+        steel_shape_designation: merged.steel_shape_designation as string | null,
+        unit_weight: merged.unit_weight as number | null,
+      });
+
   const { data: updated, error: updErr } = await supabase
     .from('takeoff_lines')
-    .update({ ...safePatch, ...priced })
+    .update({ ...safePatch, ...priced, confidence: computedConfidence })
     .eq('id', lineId)
     .select()
     .single();
@@ -260,6 +282,23 @@ export async function addLine(
     rate,
   );
 
+  // Compute deterministic confidence unless the caller explicitly set one
+  const explicitConfidence = body.confidence;
+  const computedConfidence = explicitConfidence !== undefined && explicitConfidence !== null
+    ? Number(explicitConfidence)
+    : computeConfidence({
+        source_kind: (body.source_kind as string) || 'manual',
+        source_section: (body.source_section as string) || null,
+        source_page: (body.source_page as number) ?? null,
+        source_evidence: (body.source_evidence as string) || null,
+        quantity_band: (body.quantity_band as string) || 'point',
+        quantity_min: (body.quantity_min as number) ?? null,
+        quantity_max: (body.quantity_max as number) ?? null,
+        quantity: Number(body.quantity ?? 1),
+        steel_shape_designation: (body.steel_shape_designation as string) || null,
+        unit_weight: (body.unit_weight as number) ?? null,
+      });
+
   const insertRow = {
     takeoff_run_id: runId,
     line_no: nextNo,
@@ -292,7 +331,7 @@ export async function addLine(
     material_cost_usd: priced.material_cost_usd,
     labor_cost_usd: priced.labor_cost_usd,
     line_total_usd: priced.line_total_usd,
-    confidence: body.confidence ?? 1.0,           // manually added → user owns it
+    confidence: computedConfidence,
     flagged_for_review: body.flagged_for_review ?? false,
     assumptions: body.assumptions || null,
     notes: body.notes || null,

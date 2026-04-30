@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   // Pull all historical lines in this category, joining the run's
   // opportunity for context + the actuals row if any.
-  let q = supabase
+  const q = supabase
     .from('takeoff_lines')
     .select(`
       id, line_no, category, description, quantity, quantity_unit,

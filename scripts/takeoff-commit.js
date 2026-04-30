@@ -70,9 +70,11 @@ function validateLine(line, idx) {
   if (!line.source_evidence) {
     errors.push(`line ${idx}: source_evidence required (cite the spec/Q&A/sheet text)`);
   }
-  if (line.confidence === undefined || line.confidence < 0 || line.confidence > 1) {
-    errors.push(`line ${idx}: confidence must be between 0 and 1`);
-  }
+  // Note: line.confidence is no longer used as input. The deterministic
+  // formula in lib/takeoff/confidence.js computes it from source_kind +
+  // quantity_band + corroborating_sources + band_tightness, then validators
+  // may clamp it for V.I.F. / lazy_allowance / etc. Agent-supplied values
+  // are ignored to prevent the LLM from hand-grading itself.
   if (line.finish !== undefined && !VALID_FINISHES.has(line.finish)) {
     errors.push(`line ${idx}: invalid finish "${line.finish}"`);
   }
@@ -180,7 +182,26 @@ function summarize(lines, rate) {
   const bidWithBond = bid * (1 + Number(rate.bond_default || 0));
 
   const flagged = lines.filter((l) => l.flagged_for_review).length;
-  const confSum = lines.reduce((a, l) => a + Number(l.confidence || 0), 0);
+
+  // Confidence is dollar-weighted, not line-count-averaged. A $50 fastener
+  // line at 0.50 should not punish the run as hard as a $20k beam at 0.50.
+  // Weight = line's contribution to the bid total (material + labor + finish);
+  // fall back to uniform if all lines have $0 (e.g. SOW-only takeoffs).
+  const lineDollars = lines.map((l) =>
+    Number(l.material_cost_usd || 0) + Number(l.labor_cost_usd || 0) + Number(l.finish_cost_usd || 0));
+  const totalDollars = lineDollars.reduce((a, b) => a + b, 0);
+  let confidenceWeighted;
+  if (totalDollars > 0) {
+    confidenceWeighted = lines.reduce((acc, l, i) =>
+      acc + Number(l.confidence || 0) * (lineDollars[i] / totalDollars), 0);
+  } else {
+    confidenceWeighted = lines.length
+      ? lines.reduce((a, l) => a + Number(l.confidence || 0), 0) / lines.length
+      : 0;
+  }
+  const confidenceUnweighted = lines.length
+    ? lines.reduce((a, l) => a + Number(l.confidence || 0), 0) / lines.length
+    : 0;
 
   return {
     total_weight_lbs: totalWeight,
@@ -196,7 +217,8 @@ function summarize(lines, rate) {
     overhead_usd: overhead,
     profit_usd: profit,
     bid_total_usd: bidWithBond,
-    confidence_avg: lines.length ? confSum / lines.length : 0,
+    confidence_avg: confidenceWeighted,
+    confidence_unweighted_avg: confidenceUnweighted,
     flagged_lines_count: flagged,
   };
 }
@@ -381,7 +403,11 @@ async function main() {
   const rollup = summarize(enrichedLines, rate);
 
   // Insert run
-  const runBody = {
+  // Strip rollup fields that may not exist as columns until migration 017
+  // is applied. Tries with full rollup; if Supabase rejects the unknown
+  // column, retries without it.
+  const fullRollup = { ...rollup };
+  const baseRunBody = {
     opportunity_id: args.opp,
     stage: takeoff.stage || context.bid_stage || 'unknown',
     rate_card_version_id: rate.id,
@@ -390,19 +416,54 @@ async function main() {
     raw_output: takeoff,
     notes: takeoff.scope_summary || null,
     status: 'draft',
-    ...rollup,
   };
-  const runRes = await fetch(`${SUPABASE_URL}/rest/v1/takeoff_runs`, {
+  const runBody = { ...baseRunBody, ...fullRollup };
+  let runRes = await fetch(`${SUPABASE_URL}/rest/v1/takeoff_runs`, {
     method: 'POST',
     headers: headers({ Prefer: 'return=representation' }),
     body: JSON.stringify(runBody),
   });
-  if (!runRes.ok) {
+  if (!runRes.ok && runRes.status === 400) {
+    // Probably the new confidence_unweighted_avg column doesn't exist yet.
+    // Retry with only base columns + the legacy rollup shape.
+    const errText = await runRes.text();
+    if (/confidence_unweighted_avg|column.*does not exist/i.test(errText)) {
+      const { confidence_unweighted_avg, ...legacyRollup } = fullRollup;
+      const fallbackBody = { ...baseRunBody, ...legacyRollup };
+      runRes = await fetch(`${SUPABASE_URL}/rest/v1/takeoff_runs`, {
+        method: 'POST',
+        headers: headers({ Prefer: 'return=representation' }),
+        body: JSON.stringify(fallbackBody),
+      });
+      if (!runRes.ok) { console.error('takeoff_runs retry failed:', runRes.status, await runRes.text()); process.exit(1); }
+      console.log('  (note: confidence_unweighted_avg not persisted — apply migration 017)');
+    } else {
+      console.error('takeoff_runs insert failed:', runRes.status, errText);
+      process.exit(1);
+    }
+  } else if (!runRes.ok) {
     console.error('takeoff_runs insert failed:', runRes.status, await runRes.text());
     process.exit(1);
   }
   const [run] = await runRes.json();
   console.log(`Inserted takeoff_run ${run.id}`);
+
+  // Supersede any prior 'current' run for this opp (migration 017).
+  // Patches gracefully if the status/superseded_by columns don't exist yet.
+  try {
+    const priorRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/takeoff_runs?opportunity_id=eq.${args.opp}&status=eq.current&id=neq.${run.id}`,
+      { method: 'PATCH', headers: headers({ Prefer: 'return=minimal' }),
+        body: JSON.stringify({ status: 'superseded', superseded_by: run.id, superseded_at: new Date().toISOString() }) },
+    );
+    if (priorRes.ok) {
+      console.log(`Superseded prior current run(s) for opp ${args.opp}`);
+    } else if (priorRes.status === 400) {
+      // Likely the column doesn't exist yet — migration 017 not applied.
+      // Don't fail the commit; just note it.
+      console.log('  (note: takeoff_runs.status not present — apply migration 017 to enable supersede)');
+    }
+  } catch (_) { /* best-effort */ }
 
   // Insert lines
   if (enrichedLines.length) {
@@ -430,7 +491,7 @@ async function main() {
   console.log(`Finish subtotal:       $${(rollup.finish_subtotal_usd || 0).toFixed(0)}`);
   console.log(`Subtotal (incl tax):   $${(rollup.subtotal_usd || 0).toFixed(0)}`);
   console.log(`Bid total (incl bond): $${(rollup.bid_total_usd || 0).toFixed(0)}`);
-  console.log(`Confidence avg:        ${(rollup.confidence_avg * 100).toFixed(0)}%`);
+  console.log(`Confidence (weighted): ${(rollup.confidence_avg * 100).toFixed(0)}%  (unweighted: ${(rollup.confidence_unweighted_avg * 100).toFixed(0)}%)`);
 
   // Bid-form phantom-category check: warn if any line category isn't
   // covered by a CSI code on the GC's bid form.
@@ -450,11 +511,74 @@ async function main() {
       console.log(`   Form lists CSI codes: ${check.bid_form_csi_codes.slice(0, 12).join(', ')}${check.bid_form_csi_codes.length > 12 ? '…' : ''}`);
       console.log(`   Allowed categories:   ${check.allowed_categories.join(', ')}`);
       console.log(`   Phantom categories in your takeoff: ${check.phantom.join(', ')}`);
-      console.log(`   Action: drop the phantom lines OR confirm with GC whether they should be added to the form.`);
+
+      // Compute the dollar exposure of phantom categories so the user
+      // can prioritise the call to the GC.
+      const phantomDollars = enrichedLines
+        .filter((l) => check.phantom.includes(l.category))
+        .reduce((acc, l) => acc +
+          Number(l.line_total_usd ||
+                 (Number(l.material_cost_usd || 0) +
+                  Number(l.labor_cost_usd || 0) +
+                  Number(l.finish_cost_usd || 0))), 0);
+
+      // Synthesise a ready-to-send RFI question for the GC. This ends
+      // the era of "warning printed, user shrugs, never addressed."
+      const rfiText = buildBidFormGapRfi({
+        gcName: context?.opportunity?.gc_name || 'GC',
+        csiCodes: check.bid_form_csi_codes,
+        phantom: check.phantom,
+        phantomDollars,
+        oppTitle: context?.opportunity?.title || args.opp,
+      });
+      console.log(`\n📨 BID-FORM-GAP RFI (paste into Camosy email / Ariba portal):\n${rfiText}\n`);
+
+      // Persist as a pipeline_event so the UI can surface it on the opp page.
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/pipeline_events`, {
+          method: 'POST', headers: headers({ Prefer: 'return=minimal' }),
+          body: JSON.stringify({
+            opportunity_id: args.opp,
+            event_type: 'bid_form_gap_rfi',
+            payload: { phantom_categories: check.phantom, phantom_dollars: phantomDollars, rfi_text: rfiText, takeoff_run_id: run.id },
+          }),
+        });
+      } catch (_) { /* event row is nice-to-have */ }
     } else {
       console.log(`Bid-form check:        ✓ all ${check.in_scope.length} categories covered`);
     }
   }
+}
+
+function buildBidFormGapRfi({ gcName, csiCodes, phantom, phantomDollars, oppTitle }) {
+  const csiList = csiCodes.slice(0, 8).join(', ') + (csiCodes.length > 8 ? '...' : '');
+  const phantomList = phantom.join(', ');
+  return [
+    `Subject: ${oppTitle} — RFI on Section 05 50 00 / Misc Metals coverage on bid form`,
+    ``,
+    `${gcName} team,`,
+    ``,
+    `Reviewing the bid form for ${oppTitle}, the listed CSI codes are:`,
+    `    ${csiList}`,
+    ``,
+    `Our takeoff identifies items in these categories that are NOT covered by`,
+    `any code on the form: ${phantomList}.`,
+    `Combined value at our pricing: $${Math.round(phantomDollars).toLocaleString()}.`,
+    ``,
+    `Please confirm one of the following:`,
+    `  (a) The bid form should include a Section 05 50 00 (Metal Fabrications)`,
+    `      line item, and we should price ${phantomList} on that line.`,
+    `  (b) ${gcName} self-performs or has an existing sub for these items, in`,
+    `      which case we will exclude them from our number.`,
+    `  (c) Items should be folded into Section 05 10 00 (Structural Steel)`,
+    `      with descriptive nomenclature.`,
+    ``,
+    `This affects the apples-to-apples comparison among bidders. Happy to walk`,
+    `through the specific items by phone if it's faster.`,
+    ``,
+    `Thanks,`,
+    `Thomas / TCB Metalworks`,
+  ].join('\n');
 }
 
 main().catch((e) => {

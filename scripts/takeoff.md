@@ -48,6 +48,34 @@ The catalog of standard steel shapes is in `context.json` under
   dimensioned details. `"range"` only when the drawing is ambiguous.
 - Confidence 0.7–0.95 typical.
 
+### NO LAZY ALLOWANCES (Final-CD)
+The validator rejects any line at confidence < 0.70 OR with a
+quantity range > 2× spread that does **not** show measurement
+evidence in `source_evidence` / `assumptions`. Before falling
+back to "30 LF allowance, RFI for length" you must try, in order:
+
+1. **Dimensions near the callout.** Use
+   `lib/takeoff/measure-callout.js → measureCallout({pageItems, x, y, radius:250})`.
+   It returns nearby dimension strings, dimension chains (collinear
+   runs), and a single best measurement with rationale. Cite the
+   chain or nearest dim in `source_evidence`.
+2. **Symbol counting on the page.** When a callout reads "TYP",
+   count how many times the same symbol (`E60`, `A1.08`, etc.) appears
+   on the same page using `calloutSymbolCount(pageItems, symbol)`.
+   That's your quantity, not "5 EA assumed."
+3. **Cross-page callout count.** For coded notes referenced from
+   multiple plan sheets (e.g. `A4.13` painted-rail-above-wall), count
+   plan callouts across all relevant sheets. Each callout is one
+   instance; multiply by per-instance length from the partition
+   geometry.
+4. **Document why measurement is impossible.** Only after 1–3 fail
+   may a range stand. State the reason explicitly: "scale-only
+   drawing, no placed dimensions" or "callout points to area cropped
+   off the sheet." Vague "RFI for length" is not acceptable.
+
+Lines that fail this rule are dropped to confidence 0.45 and flagged.
+The bid cannot ship until you re-run with measurements.
+
 ---
 
 ## Workflow

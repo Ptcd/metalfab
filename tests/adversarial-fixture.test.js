@@ -38,6 +38,9 @@ BRG. PLATE 7" X 10" X 3/4" THK
 DOOR SCHEDULE — Room 103 EMPLOYEE ENTRY F1 HM PTD 3'-0" 7'-0"
 Room 124 QA LAB ETR (existing to remain)
 DEMOLITION PLAN D101 — remove existing partition wall.
+ELEVATION A302 — Wall length per North Elevation @ Receiving Dock 130: 9'-8" V.I.F.
+A1.08 PROVIDE NEW 42" RAIL TO MATCH EXISTING. Demo plan p23 shows the existing rail being removed at this exact location — existing condition documented.
+A1.08 PROVIDE NEW 42" HIGH METAL RAILING AND BI-PARTING GATE TO MATCH EXISTING IN SPACE. POSTS TO BE HEAVY DUTY 4" DIAMETER BOLLARDS.
 `;
 
 const INDUSTRY_PRIORS = [
@@ -344,6 +347,125 @@ const VALIDATOR_CTX = {
   check('Case 14: density_below_typical detected on absurdly low total',
     r.findings.some((f) => f.category === 'density_below_typical'),
     `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 11b: Dimensional V.I.F. ("9'-8" V.I.F.") is standard
+   renovation practice. Should be info-only; do NOT cap confidence.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'handrail', source_kind: 'drawing',
+    source_section: 'A302 elevation',
+    source_evidence: 'Wall length per North Elevation @ Receiving Dock 130: 9\'-8" V.I.F.',
+    quantity: 9.7, quantity_unit: 'LF', quantity_band: 'point',
+    quantity_min: 9.5, quantity_max: 10.5,
+    fab_hrs: 6, ironworker_hrs: 12, material_grade: 'A53',
+    confidence: 0.82, flagged_for_review: false,
+    description: 'Painted steel pipe rail above wall, 9\'-8" length per elevation',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 11b: dimensional V.I.F. produces info finding only',
+    r.findings.some((f) => f.category === 'vif_dimensional_noted'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 11b: dimensional V.I.F. does NOT cap confidence',
+    r.lines[0].confidence >= 0.80, `conf: ${r.lines[0].confidence}`);
+}
+
+/* ============================================================
+   Case 11d: Finish V.I.F. — "match existing" but structural spec
+   (shape/size/dimensions) is fully defined. Should classify as
+   finish-only, cap at 0.85, not 0.50.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'guardrail', source_kind: 'drawing',
+    source_section: 'A1.08',
+    source_evidence: 'PROVIDE NEW 42" HIGH METAL RAILING AND BI-PARTING GATE TO MATCH EXISTING IN SPACE. POSTS TO BE HEAVY DUTY 4" DIAMETER BOLLARDS.',
+    quantity: 1, quantity_unit: 'EA', quantity_band: 'point',
+    quantity_min: 1, quantity_max: 1,
+    fab_hrs: 14, ironworker_hrs: 16, material_grade: 'A53',
+    confidence: 0.90, flagged_for_review: false,
+    description: '42" rail + bi-parting gate, 4" diameter bollard posts',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 11d: finish_vif_only classification fires',
+    r.findings.some((f) => f.category === 'finish_vif_only'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 11d: confidence capped at 0.85 (not 0.50)',
+    r.lines[0].confidence === 0.85, `conf: ${r.lines[0].confidence}`);
+}
+
+/* ============================================================
+   Case 11c: Material V.I.F. with documented existing condition
+   (demo plan reference). Should cap at 0.75, not 0.50.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'guardrail', source_kind: 'drawing',
+    source_section: 'A1.08 + demo plan p23',
+    source_evidence: 'PROVIDE NEW 42" RAIL TO MATCH EXISTING. Demo plan p23 shows the existing rail being removed at this exact location — existing condition documented.',
+    quantity: 1, quantity_unit: 'EA', quantity_band: 'point',
+    quantity_min: 1, quantity_max: 1,
+    fab_hrs: 14, ironworker_hrs: 16, material_grade: 'A53',
+    confidence: 0.85, flagged_for_review: false,
+    description: '42" rail with bi-parting gate, replacement-in-kind',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 11c: documented existing condition resolves V.I.F.',
+    r.findings.some((f) => f.category === 'vif_resolved_by_existing_documentation'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 11c: confidence capped at 0.75 (not 0.50)',
+    r.lines[0].confidence === 0.75, `conf: ${r.lines[0].confidence}`);
+}
+
+/* ============================================================
+   Case 15: Lazy-allowance — low confidence + wide range +
+   "allowance" / "RFI for length" language with NO measurement
+   evidence in source_evidence. Should fail the line.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'guardrail', source_kind: 'drawing',
+    source_section: 'A352',
+    source_evidence: 'A352 note A3.05: PROVIDE SAFETY RAILING AROUND THE ENTIRE PERIMETER OF ROOM',
+    quantity: 30, quantity_unit: 'LF', quantity_band: 'assumed_typical',
+    quantity_min: 0, quantity_max: 60,
+    fab_hrs: 12, ironworker_hrs: 18, material_grade: 'A53',
+    confidence: 0.50, flagged_for_review: true,
+    description: 'Safety pipe rail allowance pending RFI',
+    assumptions: '30 LF allowance pending RFI. Could be 0 or 60 LF.',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 15: lazy_allowance detected (no measurement evidence)',
+    r.findings.some((f) => f.category === 'lazy_allowance'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 15: confidence dropped <= 0.45',
+    r.lines[0].confidence <= 0.45, `conf: ${r.lines[0].confidence}`);
+}
+
+/* ============================================================
+   Case 16: Measured allowance — same kind of line, but
+   source_evidence cites a dimension chain or callout count.
+   Should NOT trigger lazy_allowance.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'bollard', source_kind: 'drawing',
+    source_section: 'p32 Shipping Dock',
+    source_evidence: "Equipment Schedule: '6\" BOLLARD'. Plan callout (1740,269) E60 'TYP.' Adjacent dimension chain along y=192 reads 5'-0\" | 4'-6\" | 4'-6\" | 4'-6\" — 3 bays at 4'-6\" o.c. = 4 bollards.",
+    quantity: 5, quantity_unit: 'EA', quantity_band: 'point',
+    quantity_min: 5, quantity_max: 5,
+    fab_hrs: 8, ironworker_hrs: 16, material_grade: 'A53',
+    confidence: 0.85, flagged_for_review: false,
+    description: '6" steel bollards measured from spacing chain',
+    assumptions: "5 EA measured: 4 at Shipping Dock typical run + 1 at Receiving.",
+  }];
+  const ctx = { ...VALIDATOR_CTX, equipmentScheduleCategories: ['bollard'] };
+  const r = validateLines(lines, ctx);
+  check('Case 16: measured-callout line does NOT trigger lazy_allowance',
+    !r.findings.some((f) => f.category === 'lazy_allowance'),
+    `unexpected findings: ${r.findings.filter(f=>f.category==='lazy_allowance').map(f=>f.finding).join(' | ')}`);
 }
 
 /* ============================================================

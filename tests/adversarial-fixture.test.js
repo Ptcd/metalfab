@@ -469,6 +469,126 @@ const VALIDATOR_CTX = {
 }
 
 /* ============================================================
+   Case 17: Fabricated quoted span — "match existing" within quotes
+   that doesn't appear verbatim in the package. The new tighter
+   verbatim_quote validator should fire on the quoted span even if
+   the surrounding prose has high token overlap.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'guardrail', source_kind: 'spec',
+    source_section: '05 52 13',
+    source_evidence: 'Per Section 05 52 13 §2.01.B "Provide for erection loads, and for sufficient temporary bracing to maintain true alignment until completion of erection." Section 05 50 00 covers metal fabrications.',
+    quantity: 30, quantity_unit: 'LF', quantity_band: 'point',
+    fab_hrs: 6, ironworker_hrs: 12, material_grade: 'A53',
+    confidence: 0.85, flagged_for_review: false,
+    description: 'Pipe railing per spec',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 17: fabricated_quote fires on quoted span absent from package',
+    r.findings.some((f) => f.category === 'fabricated_quote'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 18: Ghost sheet reference — line cites Detail 3/A060 but
+   A060 isn't in the drawing index.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'handrail', source_kind: 'drawing',
+    source_section: 'A4.13',
+    source_evidence: "Coded note A4.13: 'NEW PAINTED STEEL PIPE RAILING ABOVE WALL. REFER TO DETAIL 3/A060.'",
+    quantity: 30, quantity_unit: 'LF', quantity_band: 'range',
+    quantity_min: 25, quantity_max: 35,
+    fab_hrs: 8, ironworker_hrs: 14, material_grade: 'A53',
+    confidence: 0.80, flagged_for_review: false,
+    description: 'Above-wall rail per Detail 3/A060',
+  }];
+  const ctx = { ...VALIDATOR_CTX, drawingIndexSheets: [
+    { number: 'A000', name: 'PARTITION TYPES & DETAILS' },
+    { number: 'A001', name: 'PARTITION TYPES & DETAILS' },
+    { number: 'A101A', name: 'CONSTRUCTION PLAN' },
+    { number: 'S101', name: 'STRUCTURAL FRAMING' },
+    { number: 'A452', name: 'INTERIOR ELEVATIONS' },
+    { number: 'A453', name: 'INTERIOR ELEVATIONS' },
+    { number: 'A454', name: 'INTERIOR ELEVATIONS' },
+    { number: 'G201', name: 'GENERAL NOTES' },
+  ] };
+  const r = validateLines(lines, ctx);
+  check('Case 18: ghost_sheet_reference fires when A060 not in index',
+    r.findings.some((f) => f.category === 'ghost_sheet_reference'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 19: Relevant page uncited — line cites p27 but plan-intelligence
+   flagged p21 + p27 + p32 as bollard-relevant. p21 is the fab detail
+   the agent missed.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'bollard', source_kind: 'drawing',
+    source_section: 'Equipment Schedule p27',
+    source_page: 27,
+    source_evidence: "Equipment Schedule p27 (1894,1025): '6\" BOLLARD'. Plan callout p27 (524,449) E60 at Receiving Dock.",
+    quantity: 5, quantity_unit: 'EA', quantity_band: 'point',
+    quantity_min: 5, quantity_max: 5,
+    fab_hrs: 8, ironworker_hrs: 16, material_grade: 'A53',
+    confidence: 0.85, flagged_for_review: false,
+    description: '6" bollards from equipment schedule',
+  }];
+  const ctx = { ...VALIDATOR_CTX, categoryPages: { bollard: [21, 27, 32] } };
+  const r = validateLines(lines, ctx);
+  check('Case 19: relevant_page_uncited fires for missed fab-detail page',
+    r.findings.some((f) => f.category === 'relevant_page_uncited' || f.category === 'relevant_pages_unread_at_run_level'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 20: Multi-detail sheet undercited — S101 has 4 details, line
+   cites "Detail B/S101" only, undercount fires.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'structural_beam', source_kind: 'drawing',
+    source_section: 'S101',
+    source_page: 19,
+    source_evidence: "S101 Detail 1/S101: 'W10X68 T/STL EL +10'-2\". 12 LF.'",
+    quantity: 12, quantity_unit: 'LF', quantity_band: 'point',
+    quantity_min: 11, quantity_max: 14,
+    fab_hrs: 8, ironworker_hrs: 14, material_grade: 'A992',
+    steel_shape_designation: 'W10x68', flagged_for_review: false,
+    description: 'W10x68 beam',
+  }];
+  const ctx = { ...VALIDATOR_CTX, sheetDetailCounts: { 'S101': 4 } };
+  const r = validateLines(lines, ctx);
+  check('Case 20: multi_detail_sheet_undercited fires when 1 of 4 details cited',
+    r.findings.some((f) => f.category === 'multi_detail_sheet_undercited'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 21: Ghost spec section — line cites Section 05 52 13 but
+   that section isn't in the package's spec coverage.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'guardrail', source_kind: 'spec',
+    source_evidence: 'Per Section 05 52 13 spec, custom-fabricated pipe railings ASTM A53 Grade B.',
+    quantity: 30, quantity_unit: 'LF', quantity_band: 'range',
+    fab_hrs: 6, ironworker_hrs: 12, material_grade: 'A53',
+    confidence: 0.80, flagged_for_review: false,
+    description: 'Pipe rail per spec',
+  }];
+  const ctx = { ...VALIDATOR_CTX, specSectionsAbsent: ['05 52 13'] };
+  const r = validateLines(lines, ctx);
+  check('Case 21: ghost_spec_reference fires when section absent from package',
+    r.findings.some((f) => f.category === 'ghost_spec_reference'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
    Negative case: a clean, well-cited line should produce ZERO
    reliability findings. Catches false-positives in the validators.
    ============================================================ */

@@ -385,6 +385,10 @@ async function main() {
     buildingType,
     equipmentScheduleCategories,
     tcbSections: piForValidate?.summary?.tcb_sections || [],
+    drawingIndexSheets: piForValidate?.summary?.drawing_index?.sheets || [],
+    categoryPages: piForValidate?.summary?.category_pages || null,
+    sheetDetailCounts: piForValidate?.summary?.sheet_detail_counts || null,
+    specSectionsAbsent: piForValidate?.summary?.csi_references_absent_from_package || [],
     totalWeightLbs,
     projectSf,
   });

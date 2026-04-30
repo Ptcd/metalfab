@@ -160,7 +160,11 @@ async function pageItems(doc, p) {
 
 async function pageText(doc, p) {
   const items = await pageItems(doc, p);
-  return items.map((i) => i.str).join(' ');
+  // Normalize whitespace runs to single spaces. PDF text extractors emit
+  // variable spacing between glyphs; literal-space patterns like "SCHEDULE 80"
+  // would otherwise miss "SCHEDULE  80" (double-space). Patterns with explicit
+  // \s+ still work; literal spaces match a single space after normalization.
+  return items.map((i) => i.str).join(' ').replace(/\s+/g, ' ');
 }
 
 function resolvePdfPath(args) {

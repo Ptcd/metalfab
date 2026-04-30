@@ -589,6 +589,139 @@ const VALIDATOR_CTX = {
 }
 
 /* ============================================================
+   Case 22: Blank spec sheets — sheets titled SPECIFICATIONS in the
+   drawing index but identical-length-across-siblings (template-only).
+   Real-world sheet_title from per-page title blocks is often null,
+   so the validator falls back to drawing_index titles.
+   ============================================================ */
+{
+  const ctx = { ...VALIDATOR_CTX,
+    sheets: [
+      // 3 sheets with identical body_text_length signals template-only
+      { sheet_no: 'G900', sheet_title: null, body_text_length: 1871, page_number: 8 },
+      { sheet_no: 'G901', sheet_title: null, body_text_length: 1871, page_number: 9 },
+      { sheet_no: 'G910', sheet_title: null, body_text_length: 1871, page_number: 18 },
+      { sheet_no: 'A101', sheet_title: 'CONSTRUCTION PLAN', body_text_length: 5000, page_number: 27 },
+    ],
+    drawingIndexSheets: [
+      { number: 'G900', name: 'SPECIFICATIONS' },
+      { number: 'G901', name: 'SPECIFICATIONS' },
+      { number: 'G910', name: 'SPECIFICATIONS' },
+      { number: 'A101', name: 'CONSTRUCTION PLAN' },
+    ],
+  };
+  const r = validateLines([], ctx);
+  check('Case 22: spec_pages_blank fires when SPECIFICATIONS sheets share template-only body length',
+    r.findings.some((f) => f.category === 'spec_pages_blank'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 23: Coded note silently dropped — note glossary contains
+   a TCB-relevant note that's neither cited nor excluded.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'structural_beam', source_kind: 'drawing',
+    source_section: 'S101',
+    source_evidence: 'S101: W10X68 T/STL EL +10\'-2"',
+    quantity: 12, quantity_unit: 'LF', quantity_band: 'point',
+    fab_hrs: 8, ironworker_hrs: 14, material_grade: 'A992',
+    steel_shape_designation: 'W10x68', flagged_for_review: false,
+    description: 'W10x68 RTU beam',
+  }];
+  const ctx = { ...VALIDATOR_CTX,
+    noteGlossary: [
+      { code: 'A1.13', source_page: 27, description: 'NEW SECTION OF FENCE AND GATE TO MATCH ADJACENT EXISTING. RELOCATE OR MATCH 1 FOR 1.' },
+      { code: 'A4.15', source_page: 31, description: '6" ROUND STAINLESS STEEL SPEAK-THRU INCORPORATED INTO TRANSACTION WINDOW.' },
+      { code: 'A1.10', source_page: 27, description: 'EXISTING LOCKERS TO BE RELOCATED IN PLACE.' },  // not TCB → should NOT fire
+    ],
+    exclusions: ['Aluminum gates by storefront sub'],  // doesn't mention A1.13 or A4.15
+  };
+  const r = validateLines(lines, ctx);
+  const undecided = r.findings.filter((f) => f.category === 'coded_note_undecided');
+  check('Case 23: coded_note_undecided fires for A1.13 fence/gate',
+    undecided.some((f) => f.finding.includes('A1.13')),
+    `findings: ${undecided.map(f=>f.finding.slice(0,100)).join(' | ')}`);
+  check('Case 23: coded_note_undecided fires for A4.15 speak-thru',
+    undecided.some((f) => f.finding.includes('A4.15')),
+    `findings: ${undecided.map(f=>f.finding.slice(0,100)).join(' | ')}`);
+  check('Case 23: NON-TCB note (A1.10 lockers) does NOT fire',
+    !undecided.some((f) => f.finding.includes('A1.10')),
+    `unexpected: ${undecided.filter(f=>f.finding.includes('A1.10')).map(f=>f.finding.slice(0,100)).join(' | ')}`);
+}
+
+/* ============================================================
+   Case 24: Match-existing without documented existing condition
+   — note A1.13 says "match existing fence" but no demo note
+   removes an existing fence in this package.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'structural_beam', source_kind: 'drawing',
+    source_section: 'S101', source_evidence: 'S101: W10X68', quantity: 12,
+    quantity_unit: 'LF', quantity_band: 'point', fab_hrs: 8, ironworker_hrs: 14,
+    material_grade: 'A992', steel_shape_designation: 'W10x68', description: 'W10x68',
+  }];
+  const ctx = { ...VALIDATOR_CTX,
+    noteGlossary: [
+      { code: 'A1.13', source_page: 27, description: 'NEW SECTION OF FENCE AND GATE TO MATCH ADJACENT EXISTING TO REMAIN SECTION OF FENCE.' },
+      { code: 'D1.25', source_page: 23, description: 'REMOVE EXISTING BOLLARD IN ITS ENTIRETY.' },  // bollard, not fence
+    ],
+    exclusions: [],
+    rfisRecommended: [],
+  };
+  const r = validateLines(lines, ctx);
+  check('Case 24: match_existing_no_anchor fires when fence removal is undocumented',
+    r.findings.some((f) => f.category === 'match_existing_no_anchor' && f.finding.includes('A1.13')),
+    `findings: ${r.findings.map(f=>f.category+':'+f.finding.slice(0,60)).join(' | ')}`);
+}
+
+/* ============================================================
+   Case 25: Structural member designation missing — line is
+   structural, cites a structural sheet, but no W##/HSS##/etc.
+   in source_evidence.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'structural_beam', source_kind: 'drawing',
+    source_section: 'S101',
+    source_evidence: 'S101 Detail Section A: "(N) NEW WF BEAM" + "EXIST. WF COLUMN UNKNOWN SIZE"',
+    quantity: 1, quantity_unit: 'LS', quantity_band: 'assumed_typical',
+    fab_hrs: 8, ironworker_hrs: 8, material_grade: 'A992',
+    steel_shape_designation: null, description: 'WF beam unknown size',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 25: structural_member_designation_missing fires when no W##x## in evidence',
+    r.findings.some((f) => f.category === 'structural_member_designation_missing'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 25: confidence capped at 0.55 for unsized structural line',
+    r.lines[0].confidence <= 0.55, `conf: ${r.lines[0].confidence}`);
+}
+
+/* ============================================================
+   Case 26: Bid-form line undecided — form has 08 00 00 doors
+   but takeoff has no HM frames AND no exclusion mentioning it.
+   ============================================================ */
+{
+  const { auditBidFormLineCoverage } = require('../lib/plan-intelligence/parse-bid-form');
+  const csiCodes = [
+    { code: '05 10 00', description: 'Structural Steel' },
+    { code: '08 00 00', description: 'Doors, Frames & Hardware' },
+  ];
+  const findings = auditBidFormLineCoverage(csiCodes, ['structural_beam'], []);
+  check('Case 26: bid_form_line_undecided fires for 08 00 00 when no HM line / no exclusion',
+    findings.some((f) => f.finding.includes('08 00 00')),
+    `findings: ${findings.map(f=>f.finding.slice(0,80)).join(' | ')}`);
+
+  // And the negative: if exclusions mention door/frames sub, it should NOT fire
+  const findings2 = auditBidFormLineCoverage(csiCodes, ['structural_beam'], ['Hollow metal frames priced by door/hardware sub']);
+  check('Case 26b: explicit exclusion satisfies the audit',
+    !findings2.some((f) => f.finding.includes('08 00 00')),
+    `unexpected: ${findings2.map(f=>f.finding.slice(0,80)).join(' | ')}`);
+}
+
+/* ============================================================
    Negative case: a clean, well-cited line should produce ZERO
    reliability findings. Catches false-positives in the validators.
    ============================================================ */

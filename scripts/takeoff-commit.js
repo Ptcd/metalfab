@@ -18,7 +18,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env.loc
 const fs = require('fs');
 const path = require('path');
 const { computeConfidence } = require('../lib/takeoff/confidence');
-const { crossCheckTakeoffCategories } = require('../lib/plan-intelligence/parse-bid-form');
+const { crossCheckTakeoffCategories, auditBidFormLineCoverage } = require('../lib/plan-intelligence/parse-bid-form');
 const { validateLines } = require('../lib/takeoff/validate');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -389,6 +389,11 @@ async function main() {
     categoryPages: piForValidate?.summary?.category_pages || null,
     sheetDetailCounts: piForValidate?.summary?.sheet_detail_counts || null,
     specSectionsAbsent: piForValidate?.summary?.csi_references_absent_from_package || [],
+    // Flatten all sheets across all docs for the blank-spec validator
+    sheets: piForValidate?.summary?.sheets || [],
+    noteGlossary: piForValidate?.summary?.note_glossary || [],
+    exclusions: takeoff.exclusions || [],
+    rfisRecommended: takeoff.rfis_recommended || [],
     totalWeightLbs,
     projectSf,
   });
@@ -510,6 +515,23 @@ async function main() {
       enrichedLines.map((l) => l.category),
       bidFormCsi
     );
+
+    // Reverse-direction audit: bid form lines whose CSI maps to TCB
+    // territory but the takeoff didn't address. Catches "form has
+    // 08 00 00 Doors/Frames; takeoff doesn't carry HM frames AND
+    // doesn't exclude them either" — a silent omission.
+    const undecidedRows = auditBidFormLineCoverage(
+      bidFormCsi,
+      enrichedLines.map((l) => l.category),
+      takeoff.exclusions || []
+    );
+    if (undecidedRows.length > 0) {
+      console.log(`\n⚠  BID-FORM ROW DECISION CHECK: ${undecidedRows.length} TCB-relevant row(s) neither priced nor excluded:`);
+      for (const f of undecidedRows.slice(0, 10)) {
+        console.log(`   - ${f.finding.slice(0, 160)}`);
+      }
+    }
+
     if (check.phantom.length > 0) {
       console.log('\n⚠  BID-FORM PHANTOM CHECK:');
       console.log(`   Form lists CSI codes: ${check.bid_form_csi_codes.slice(0, 12).join(', ')}${check.bid_form_csi_codes.length > 12 ? '…' : ''}`);

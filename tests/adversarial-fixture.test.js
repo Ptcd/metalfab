@@ -249,6 +249,104 @@ const VALIDATOR_CTX = {
 }
 
 /* ============================================================
+   Case 10: CFM (cold-formed) auto-exclusion
+   Steel-shape designation is 800S162-68 (light-gauge studs).
+   Should be flagged as drywall contractor scope, not TCB.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'misc_metal', source_kind: 'drawing',
+    source_evidence: 'TYPICAL HVAC RTU FRAME FABRICATE FROM 800S162-68 STUDS',
+    quantity: 1, quantity_unit: 'EA', quantity_band: 'assumed_typical',
+    fab_hrs: 4, ironworker_hrs: 8, finish: 'galvanized',
+    steel_shape_designation: '800S162-68', flagged_for_review: false,
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 10: cfm_not_tcb_scope detected',
+    r.findings.some((f) => f.category === 'cfm_not_tcb_scope'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 11: V.I.F. / match-existing auto-RFI
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'guardrail', source_kind: 'drawing',
+    source_evidence: 'PROVIDE NEW 42" HIGH METAL RAILING TO MATCH EXISTING IN SPACE',
+    quantity: 1, quantity_unit: 'LS', quantity_band: 'assumed_typical',
+    fab_hrs: 4, ironworker_hrs: 8, confidence: 0.7,
+    flagged_for_review: false, description: '42" railing to match existing',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 11: vif_requires_confirmation detected',
+    r.findings.some((f) => f.category === 'vif_requires_confirmation'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 11: confidence dropped to 0.5',
+    r.lines[0].confidence <= 0.50, `conf: ${r.lines[0].confidence}`);
+}
+
+/* ============================================================
+   Case 12: Demo + new-equipment replacement (NOT etr)
+   Line cites a demo note BUT equipment schedule has new bollards
+   in the same category. Should override ETR exclusion.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'bollard', source_kind: 'drawing',
+    source_evidence: 'D1.25 REMOVE EXISTING BOLLARD IN ITS ENTIRETY. PATCH AND REPAIR FLOOR.',
+    quantity: 5, quantity_unit: 'EA', quantity_band: 'assumed_typical',
+    fab_hrs: 5, ironworker_hrs: 10, finish: 'galvanized',
+    in_tcb_scope: true, flagged_for_review: false,
+  }];
+  const ctx = { ...VALIDATOR_CTX, equipmentScheduleCategories: ['bollard'] };
+  const r = validateLines(lines, ctx);
+  check('Case 12: demo_replaced_by_new override fires',
+    r.findings.some((f) => f.category === 'demo_replaced_by_new'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 12: line stays in TCB scope despite demo note',
+    r.lines[0].in_tcb_scope === true);
+}
+
+/* ============================================================
+   Case 13: Spec section absent from takeoff
+   Spec 05 52 13 is in the project manual but no handrail/guardrail
+   line in takeoff. Should fire spec_section_uncovered.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'structural_beam', source_kind: 'drawing',
+    source_evidence: 'W10X68 T/STL EL +10\'-2"',
+    quantity: 12, quantity_unit: 'LF', quantity_band: 'point',
+    fab_hrs: 8, ironworker_hrs: 14, material_grade: 'A992',
+    steel_shape_designation: 'W10x68', description: 'W10x68 beam',
+  }];
+  const ctx = { ...VALIDATOR_CTX, tcbSections: [{ section: '05 52 13', label: 'Pipe and Tube Railings', first_page: 11 }] };
+  const r = validateLines(lines, ctx);
+  check('Case 13: spec_section_uncovered detected',
+    r.findings.some((f) => f.category === 'spec_section_uncovered'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 14: Density sanity (run-level)
+   1,800 lbs over 5,000 SF = 0.36 lbs/SF — within band; no finding.
+   But 50 lbs over 5,000 SF = 0.01 lbs/SF — way below floor.
+   ============================================================ */
+{
+  const lines = [{ line_no: 1, category: 'embed', source_kind: 'drawing',
+    source_evidence: 'Embed plate per detail',
+    quantity: 1, quantity_unit: 'EA', quantity_band: 'assumed_typical',
+    fab_hrs: 1, ironworker_hrs: 1, total_weight_lbs: 50, material_grade: 'A36',
+    description: 'Embed plate' }];
+  const ctx = { ...VALIDATOR_CTX, totalWeightLbs: 50, projectSf: 5000 };
+  const r = validateLines(lines, ctx);
+  check('Case 14: density_below_typical detected on absurdly low total',
+    r.findings.some((f) => f.category === 'density_below_typical'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
    Negative case: a clean, well-cited line should produce ZERO
    reliability findings. Catches false-positives in the validators.
    ============================================================ */

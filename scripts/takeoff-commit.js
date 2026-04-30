@@ -36,10 +36,11 @@ function headers(extra = {}) {
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const out = { opp: null };
+  const out = { opp: null, dryRun: false, findingsOut: null };
   for (const a of args) {
-    const m = a.match(/^--opp=(.+)$/);
-    if (m) out.opp = m[1];
+    if (a === '--dry-run') { out.dryRun = true; continue; }
+    let m = a.match(/^--opp=(.+)$/);              if (m) { out.opp = m[1]; continue; }
+    m     = a.match(/^--findings-out=(.+)$/);     if (m) { out.findingsOut = m[1]; continue; }
   }
   return out;
 }
@@ -409,7 +410,36 @@ async function main() {
     enrichedLines[i] = { ...enrichedLines[i], ...validation.lines[i] };
   }
 
+  // If --findings-out=<path> is provided, persist the findings as JSON
+  // for the agent loop to consume on its next iteration. Includes the
+  // full finding text, severity, category, recommendation, and which
+  // line each one is tied to.
+  if (args.findingsOut) {
+    fs.writeFileSync(args.findingsOut, JSON.stringify({
+      generated_at: new Date().toISOString(),
+      total_findings: validation.findings.length,
+      errors: validation.findings.filter((f) => f.severity === 'error').length,
+      warnings: validation.findings.filter((f) => f.severity === 'warning').length,
+      infos: validation.findings.filter((f) => f.severity === 'info').length,
+      findings: validation.findings,
+    }, null, 2));
+    console.log(`Findings written to ${args.findingsOut}`);
+  }
+
   const rollup = summarize(enrichedLines, rate);
+
+  // --dry-run: validate + roll up + print, but do NOT insert into DB.
+  // Used by scripts/takeoff-run.js so the agent loop can validate
+  // intermediate iterations without polluting takeoff_runs.
+  if (args.dryRun) {
+    console.log('\n=== DRY RUN — no DB writes ===');
+    console.log(`Lines:                 ${enrichedLines.length}  (flagged: ${rollup.flagged_lines_count})`);
+    console.log(`Total weight:          ${rollup.total_weight_lbs?.toFixed(0) || 0} lbs`);
+    console.log(`Bid total (incl bond): $${(rollup.bid_total_usd || 0).toFixed(0)}`);
+    console.log(`Confidence (weighted): ${(rollup.confidence_avg * 100).toFixed(0)}%`);
+    console.log(`Validation: ${validation.findings.length} findings (${validation.findings.filter(f=>f.severity==='error').length} errors, ${validation.findings.filter(f=>f.severity==='warning').length} warnings)`);
+    return;
+  }
 
   // Insert run
   // Strip rollup fields that may not exist as columns until migration 017

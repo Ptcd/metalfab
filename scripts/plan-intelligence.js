@@ -16,6 +16,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env.loc
 const fs = require('fs');
 const path = require('path');
 const { processPackage } = require('../lib/plan-intelligence');
+const { parseXlsxBidForm, parsePdfBidForm, allowedCategoriesFromCsi } = require('../lib/plan-intelligence/parse-bid-form');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -102,19 +103,59 @@ async function main() {
   console.log(`Documents: ${docs.length}`);
 
   const buffers = [];
+  const bidFormCandidates = [];
   for (const d of docs) {
-    if (!d.filename || !/\.pdf$/i.test(d.filename)) {
-      console.log(`  skip (non-pdf): ${d.filename}`);
-      continue;
+    const fn = d.filename || '';
+    if (/\.pdf$/i.test(fn)) {
+      process.stdout.write(`  fetch ${fn} … `);
+      const buf = await downloadDoc(args.opp, fn);
+      console.log(`${(buf.length / 1024).toFixed(0)} KB`);
+      buffers.push({ filename: fn, category: d.category, buffer: buf });
+      // Bid-form PDFs (the GC's CSI line-item form)
+      if (d.category === 'form' || /bid[\s_-]?form|gc[\s_-]?bid/i.test(fn)) {
+        bidFormCandidates.push({ filename: fn, kind: 'pdf', buffer: buf });
+      }
+    } else if (/\.xlsx?$/i.test(fn) && (d.category === 'form' || /bid[\s_-]?form|gc[\s_-]?bid/i.test(fn))) {
+      // Pull the xlsx bid form to disk so the parser can read it
+      process.stdout.write(`  fetch ${fn} (bid form) … `);
+      const buf = await downloadDoc(args.opp, fn);
+      const tmpPath = require('path').join(require('os').tmpdir(), `bidform-${args.opp}-${Date.now()}.xlsx`);
+      require('fs').writeFileSync(tmpPath, buf);
+      console.log(`${(buf.length / 1024).toFixed(0)} KB`);
+      bidFormCandidates.push({ filename: fn, kind: 'xlsx', tmpPath });
+    } else {
+      console.log(`  skip (not pdf/xlsx form): ${fn}`);
     }
-    process.stdout.write(`  fetch ${d.filename} … `);
-    const buf = await downloadDoc(args.opp, d.filename);
-    console.log(`${(buf.length / 1024).toFixed(0)} KB`);
-    buffers.push({ filename: d.filename, category: d.category, buffer: buf });
   }
 
   console.log('Running Plan Intelligence …');
   const digest = await processPackage(buffers);
+
+  // Bid-form CSI envelope (cross-checks takeoff line categories later)
+  let bidFormCsi = [];
+  for (const cand of bidFormCandidates) {
+    if (cand.kind === 'xlsx') {
+      const codes = parseXlsxBidForm(cand.tmpPath);
+      bidFormCsi.push(...codes.map((c) => ({ ...c, source_filename: cand.filename })));
+      try { require('fs').unlinkSync(cand.tmpPath); } catch {}
+    } else {
+      const codes = await parsePdfBidForm(cand.buffer);
+      bidFormCsi.push(...codes.map((c) => ({ ...c, source_filename: cand.filename })));
+    }
+  }
+  // Dedup by code
+  const seen = new Set();
+  bidFormCsi = bidFormCsi.filter((c) => {
+    if (seen.has(c.code)) return false;
+    seen.add(c.code);
+    return true;
+  });
+  digest.summary.bid_form_csi_codes = bidFormCsi;
+  digest.summary.bid_form_allowed_categories = allowedCategoriesFromCsi(bidFormCsi);
+  if (bidFormCsi.length) {
+    console.log(`  Bid form CSI codes: ${bidFormCsi.length} found (${bidFormCsi.slice(0, 8).map((c) => c.code).join(', ')}${bidFormCsi.length > 8 ? '…' : ''})`);
+    console.log(`  Allowed takeoff categories: ${digest.summary.bid_form_allowed_categories.join(', ') || '(none)'}`);
+  }
 
   // Write local copy for inspection
   const oppDir = path.join(OUT_DIR, args.opp);

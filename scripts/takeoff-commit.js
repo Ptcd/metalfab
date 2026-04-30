@@ -18,6 +18,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env.loc
 const fs = require('fs');
 const path = require('path');
 const { computeConfidence } = require('../lib/takeoff/confidence');
+const { crossCheckTakeoffCategories } = require('../lib/plan-intelligence/parse-bid-form');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -343,6 +344,30 @@ async function main() {
   console.log(`Subtotal (incl tax):   $${(rollup.subtotal_usd || 0).toFixed(0)}`);
   console.log(`Bid total (incl bond): $${(rollup.bid_total_usd || 0).toFixed(0)}`);
   console.log(`Confidence avg:        ${(rollup.confidence_avg * 100).toFixed(0)}%`);
+
+  // Bid-form phantom-category check: warn if any line category isn't
+  // covered by a CSI code on the GC's bid form.
+  const piRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/plan_intelligence?opportunity_id=eq.${args.opp}&select=summary&order=generated_at.desc&limit=1`,
+    { headers: headers() }
+  );
+  const [pi] = await piRes.json();
+  const bidFormCsi = pi?.summary?.bid_form_csi_codes || [];
+  if (bidFormCsi.length > 0) {
+    const check = crossCheckTakeoffCategories(
+      enrichedLines.map((l) => l.category),
+      bidFormCsi
+    );
+    if (check.phantom.length > 0) {
+      console.log('\n⚠  BID-FORM PHANTOM CHECK:');
+      console.log(`   Form lists CSI codes: ${check.bid_form_csi_codes.slice(0, 12).join(', ')}${check.bid_form_csi_codes.length > 12 ? '…' : ''}`);
+      console.log(`   Allowed categories:   ${check.allowed_categories.join(', ')}`);
+      console.log(`   Phantom categories in your takeoff: ${check.phantom.join(', ')}`);
+      console.log(`   Action: drop the phantom lines OR confirm with GC whether they should be added to the form.`);
+    } else {
+      console.log(`Bid-form check:        ✓ all ${check.in_scope.length} categories covered`);
+    }
+  }
 }
 
 main().catch((e) => {

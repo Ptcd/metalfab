@@ -65,6 +65,22 @@ interface RFIBundle {
   formatted_list: string;
 }
 
+interface PreflightCheck {
+  name: string;
+  label: string;
+  pass: boolean;
+  detail: string;
+}
+
+interface PreflightStatus {
+  ready: boolean;
+  blockers: string[];
+  checks: PreflightCheck[];
+  low_confidence_lines: { line_no: number; category: string; confidence: number }[];
+  confidence_floor: number;
+  run_status: string;
+}
+
 const fmt$ = (v: number | null | undefined) =>
   v == null ? '—' : `$${Math.round(v).toLocaleString()}`;
 
@@ -94,18 +110,21 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
   const [selected, setSelected] = useState<'conservative' | 'expected' | 'aggressive'>('expected');
   const [rfis, setRfis] = useState<RFIBundle | null>(null);
   const [copiedRfi, setCopiedRfi] = useState(false);
+  const [preflight, setPreflight] = useState<PreflightStatus | null>(null);
 
   useEffect(() => {
     let active = true;
     (async () => {
-      const [tRes, pRes, rRes] = await Promise.all([
+      const [tRes, pRes, rRes, prefRes] = await Promise.all([
         fetch(`/api/opportunities/${opportunityId}/takeoff`),
         fetch(`/api/opportunities/${opportunityId}/proposal`),
         fetch(`/api/opportunities/${opportunityId}/takeoff/rfi`),
+        fetch(`/api/opportunities/${opportunityId}/takeoff/preflight`),
       ]);
       const tBody = await tRes.json().catch(() => ({}));
       const pBody = await pRes.json().catch(() => ({}));
       const rBody = await rRes.json().catch(() => ({}));
+      const prefBody = await prefRes.json().catch(() => ({}));
       if (!active) return;
       if (tBody.data) {
         setRun(tBody.data.run);
@@ -115,6 +134,7 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
       }
       setProposal(pBody.data || null);
       setRfis(rBody.data || null);
+      setPreflight(prefBody.data || null);
       setLoading(false);
     })();
     return () => { active = false; };
@@ -148,18 +168,36 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
 
   const readOnly = run.status === 'approved' || run.status === 'submitted';
 
-  async function approve() {
+  async function approve(opts: { force?: boolean; overrides?: { line_no: number; reason: string }[] } = {}) {
     if (!run || !scenarios) return;
     setApproving(true);
     const bid = scenarios[selected].bid_total_usd;
     const res = await fetch(`/api/opportunities/${opportunityId}/takeoff/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ run_id: run.id, scenario: selected, bid_total_usd: bid }),
+      body: JSON.stringify({
+        run_id: run.id,
+        scenario: selected,
+        bid_total_usd: bid,
+        force: opts.force || false,
+        override_low_confidence: opts.overrides || [],
+      }),
     });
     setApproving(false);
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
+      if (e.error === 'preflight_blocked') {
+        const blockerList = (e.blockers || []).map((b: string, i: number) => `${i + 1}. ${b}`).join('\n');
+        const lowConfList = (e.low_confidence_lines || [])
+          .map((l: { line_no: number; category: string; confidence: number }) =>
+            `  Line ${l.line_no} ${l.category} @ ${(l.confidence * 100).toFixed(0)}%`)
+          .join('\n');
+        const proceed = confirm(
+          `⚠ Pre-flight blocked. Approval requires:\n\n${blockerList}\n\n${lowConfList ? `Low-confidence lines:\n${lowConfList}\n\n` : ''}Force-approve anyway? (Logged in pipeline_events)`
+        );
+        if (proceed) return approve({ force: true });
+        return;
+      }
       alert(`Approve failed: ${e.error || res.status}`);
       return;
     }
@@ -285,12 +323,38 @@ export function TakeoffPanel({ opportunityId }: { opportunityId: string }) {
         })}
       </div>
 
+      {/* Pre-flight checklist */}
+      {!readOnly && preflight && (
+        <details open={!preflight.ready} className="border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+            {preflight.ready ? (
+              <span className="text-green-600 dark:text-green-400">✓ Pre-flight: ready to approve</span>
+            ) : (
+              <span className="text-amber-600 dark:text-amber-400">⚠ Pre-flight: {preflight.blockers.length} blocker{preflight.blockers.length === 1 ? '' : 's'}</span>
+            )}
+          </summary>
+          <ul className="mt-3 space-y-1 text-sm">
+            {preflight.checks.map((c) => (
+              <li key={c.name} className="flex items-start gap-2">
+                <span className={c.pass ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                  {c.pass ? '✓' : '✗'}
+                </span>
+                <div>
+                  <div className={c.pass ? 'text-slate-700 dark:text-slate-300' : 'font-medium text-slate-900 dark:text-white'}>{c.label}</div>
+                  {c.detail && <div className="text-xs text-slate-500 dark:text-slate-400">{c.detail}</div>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {/* Approve / proposal action */}
       {!readOnly && (
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={approve}
+            onClick={() => approve()}
             disabled={approving}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded disabled:opacity-50"
           >

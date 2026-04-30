@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const { computeConfidence } = require('../lib/takeoff/confidence');
 const { crossCheckTakeoffCategories } = require('../lib/plan-intelligence/parse-bid-form');
+const { validateLines } = require('../lib/takeoff/validate');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -290,6 +291,60 @@ async function main() {
       notes: l.notes || null,
     };
   });
+
+  // Validation layer — six insert-time checks that fight specific
+  // hallucination classes. Mutations get applied (downgrades, floors);
+  // findings get printed and persisted to raw_output for the audit.
+  const piRes2 = await fetch(
+    `${SUPABASE_URL}/rest/v1/plan_intelligence?opportunity_id=eq.${args.opp}&select=digest,summary&order=generated_at.desc&limit=1`,
+    { headers: headers() }
+  );
+  const [piForValidate] = await piRes2.json();
+  const fullText = piForValidate?.digest?._fullText || '';
+  // If digest doesn't carry _fullText (was stripped at persistence), reconstruct
+  // from the schedules' rows + tcb_sections + sheet_titles as a coarse approximation.
+  let docText = fullText;
+  if (!docText && piForValidate?.summary) {
+    const s = piForValidate.summary;
+    const parts = [];
+    for (const sch of s.schedules || []) {
+      for (const r of sch.rows || []) parts.push(Object.values(r).join(' '));
+    }
+    for (const sec of s.tcb_sections || []) parts.push(sec.section + ' ' + sec.label);
+    docText = parts.join(' ');
+  }
+  // Schedule counts by category for the quantity-band validator
+  const scheduleCounts = {};
+  if (piForValidate?.summary?.door_schedule_summary) {
+    scheduleCounts['hollow_metal_frame'] = piForValidate.summary.door_schedule_summary.tcb_total;
+  }
+  // Pull priors
+  const priorsRes = await fetch(`${SUPABASE_URL}/rest/v1/assembly_labor_priors?select=*`, { headers: headers() });
+  const priorsAll = await priorsRes.json();
+  // Pull industry priors (RSMeans-style ranges)
+  const indPriorsRes = await fetch(`${SUPABASE_URL}/rest/v1/industry_priors?select=*`, { headers: headers() });
+  const industryPriors = indPriorsRes.ok ? await indPriorsRes.json() : [];
+  // Coarse building-type guess from opp title or stage
+  const buildingType = 'small_commercial_renovation';
+
+  const validation = validateLines(enrichedLines, {
+    fullText: docText,
+    scheduleCounts,
+    priors: priorsAll,
+    industryPriors,
+    buildingType,
+  });
+  if (validation.findings.length > 0) {
+    console.log(`\n--- Validation findings (${validation.findings.length}) ---`);
+    for (const f of validation.findings) {
+      const tag = f.severity === 'error' ? '⚠ ERROR' : f.severity === 'warning' ? 'WARN' : 'INFO';
+      console.log(`  [${tag}] ${f.category}: ${f.finding.slice(0, 130)}`);
+    }
+  }
+  // Re-price any line whose mutations changed labor or quantity_band
+  for (let i = 0; i < enrichedLines.length; i++) {
+    enrichedLines[i] = { ...enrichedLines[i], ...validation.lines[i] };
+  }
 
   const rollup = summarize(enrichedLines, rate);
 

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS coverage_manifests (
   CONSTRAINT coverage_manifests_unique_opp UNIQUE (opportunity_id)
 );
 
+DROP TRIGGER IF EXISTS coverage_manifests_updated_at ON coverage_manifests;
 CREATE TRIGGER coverage_manifests_updated_at
   BEFORE UPDATE ON coverage_manifests
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();

@@ -56,6 +56,19 @@ async function loadPlanIntelligence(oppId) {
   return Array.isArray(arr) ? arr[0] : null;
 }
 
+async function loadCoverageManifest(oppId) {
+  // Soft load: missing manifest is a warning, not a fatal — backwards-compat
+  // for opportunities staged before the coverage stage existed.
+  try {
+    const arr = await getJson(`${SUPABASE_URL}/rest/v1/coverage_manifests?opportunity_id=eq.${oppId}&select=manifest&order=generated_at.desc&limit=1`);
+    return Array.isArray(arr) && arr[0] ? arr[0].manifest : null;
+  } catch (e) {
+    // Table may not exist yet on staging envs without the migration applied.
+    if (/coverage_manifests/.test(String(e.message))) return null;
+    throw e;
+  }
+}
+
 async function loadRateCard() {
   const arr = await getJson(`${SUPABASE_URL}/rest/v1/rate_card_versions?effective_to=is.null&select=*&order=effective_from.desc&limit=1`);
   return Array.isArray(arr) ? arr[0] : null;
@@ -112,10 +125,11 @@ async function main() {
     process.exit(1);
   }
 
-  console.log('Loading opportunity, plan intelligence, rate card, priors, shapes…');
-  const [opp, planIntel, rateCard, priors, shapes] = await Promise.all([
+  console.log('Loading opportunity, plan intelligence, coverage manifest, rate card, priors, shapes…');
+  const [opp, planIntel, coverageManifest, rateCard, priors, shapes] = await Promise.all([
     loadOpp(args.opp),
     loadPlanIntelligence(args.opp),
+    loadCoverageManifest(args.opp),
     loadRateCard(),
     loadAssemblyPriors(),
     loadSteelShapes(),
@@ -132,6 +146,10 @@ async function main() {
   if (!rateCard) {
     console.error('no current rate_card_versions row');
     process.exit(1);
+  }
+  if (!coverageManifest) {
+    console.warn('⚠  No coverage_manifests row — run scripts/coverage.js --opp=' + args.opp + ' first.');
+    console.warn('   Continuing without manifest (manifest_coverage validator will warn at commit time).');
   }
 
   const oppDir = path.join(QUEUE_DIR, args.opp);
@@ -160,6 +178,7 @@ async function main() {
     rate_card: rateCard,
     assembly_labor_priors: priors,
     steel_shapes: shapes,
+    coverage_manifest: coverageManifest,   // null if coverage stage hasn't run; takeoff.md handles both
     instructions_file: '../scripts/takeoff.md',
   };
 
@@ -171,6 +190,12 @@ async function main() {
   console.log(`Readiness: ${summary.readiness}`);
   console.log(`TCB sections in spec: ${(summary.tcb_sections || []).map((s) => s.section).join(', ') || 'none'}`);
   console.log(`Files staged: ${stagedFiles.length}`);
+  if (coverageManifest) {
+    const ms = coverageManifest.summary || {};
+    console.log(`Coverage manifest: ${ms.spec_sections?.included || 0} included sections, ${ms.plan_sheets?.included || 0} included sheets, ${ms.needs_vision_count || 0} need vision, ${ms.unresolved_count || 0} unresolved`);
+  } else {
+    console.log(`Coverage manifest: none (coverage stage not run for this opp)`);
+  }
   console.log('\nNext: run Claude Code:');
   console.log(`  claude -p "$(cat scripts/takeoff.md)" --max-turns 100 --dangerously-skip-permissions`);
   console.log('Then: node scripts/takeoff-commit.js --opp=' + args.opp);

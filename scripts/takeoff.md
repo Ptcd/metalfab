@@ -88,6 +88,32 @@ For each line you produce, your `source_evidence` must cite at least
 one of the pages from that category's list. Otherwise the
 `relevant_page_uncited` validator fires and confidence is capped.
 
+### USE THE AUTO-EXTRACTED MEASUREMENTS
+
+Plan-intelligence runs dimension extraction on every run and emits
+`summary.measurements` — a per-page list of every dimension annotation
+on that page (e.g. `9'-8" V.I.F.`, `12'-0"`, `4'-6"`) plus
+**dimension chains** (collinear dimensions summed into a single
+length). When you write a length-bearing line, look up the relevant
+page in `measurements` and cite the chain you used:
+
+```
+measurements.find(m => m.page_number === 37).dimension_chains_horizontal
+  → [{y:638, total_ft:38, values:["9'-4\"","9'-4\"","9'-8\" V.I.F.","9'-8\" V.I.F."], any_vif:true}]
+```
+
+For example, the above-wall rail length on p37 is **38.0 ft total**
+across the 4 elevations — extracted from the actual dimensions in
+the package, not eyeballed. Cite the chain in source_evidence:
+`"per p37 dimension chain y=638: 9'-4" | 9'-4" | 9'-8" V.I.F. | 9'-8" V.I.F. = 38.0 LF"`.
+
+If a dimension is V.I.F., that's `any_vif: true` on the chain — flag
+the line for dimensional V.I.F. (carry nominal × 1.05) but DON'T
+treat it as a true RFI; the architect already gave you a number.
+
+A line that uses an auto-extracted dimension achieves higher confidence
+than one that estimates from elevations or eyeballs from a render.
+
 ### USE THE RENDERED PAGE IMAGES (vision)
 
 Text extraction misses 60-80% of what's on a drawing. Symbol counts,

@@ -88,6 +88,38 @@ For each line you produce, your `source_evidence` must cite at least
 one of the pages from that category's list. Otherwise the
 `relevant_page_uncited` validator fires and confidence is capped.
 
+### USE THE RENDERED PAGE IMAGES (vision)
+
+Text extraction misses 60-80% of what's on a drawing. Symbol counts,
+dimension layouts, partition geometry, fine print in detail blocks —
+none of these survive text extraction reliably. The
+`scripts/takeoff-prepare.js` step auto-renders strategic pages to
+high-res PNG and writes them to:
+
+    ./takeoff-queue/<opp_id>/renders/p<N>.png
+    ./takeoff-queue/<opp_id>/renders/manifest.json   ← tells you which pages were rendered + why
+
+ALWAYS read those PNGs for any line where text evidence alone doesn't
+fully resolve the count, length, or material. Specifically:
+
+- **Counting symbols** (bollards, embeds, manhole markers, etc.) on a
+  plan view → read the rendered PNG of that plan page and count visually.
+  Text-based dimension chains miss runs that wrap around corners; vision
+  catches them.
+- **Reading detail blocks** (Detail 5/A001, partition types, etc.) →
+  detail pages have small text that text extraction garbles. The PNG
+  shows it cleanly.
+- **Confirming an elevation count** (rails, posts, doors visible) →
+  elevations are pure visual content. Always vision-verify.
+- **Reading schedules** (door schedule, equipment schedule) when
+  parse-schedule.js produced a count that doesn't match other signals →
+  open the rendered PNG and count rows yourself.
+
+When you cite a page, prefer to cite both the text source ("S101 detail B")
+AND the visual count ("verified 8 bollards on rendered p37"). The
+combination satisfies both the verbatim_quote and relevant_page_uncited
+validators AND gives the human reviewer two independent reads to check.
+
 When a sheet you cite has multiple "Detail N" or "TYPICAL X" or
 "SECTION A-A" callouts (sheets like S101 or A001 routinely have 3-6
 distinct detail blocks), open every block, not just the one your

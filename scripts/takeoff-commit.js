@@ -395,6 +395,7 @@ async function main() {
     noteGlossary: piForValidate?.summary?.note_glossary || [],
     exclusions: takeoff.exclusions || [],
     rfisRecommended: takeoff.rfis_recommended || [],
+    rendersDir: fs.existsSync(path.join(oppDir, 'renders', 'manifest.json')) ? path.join(oppDir, 'renders') : null,
     totalWeightLbs,
     projectSf,
   });

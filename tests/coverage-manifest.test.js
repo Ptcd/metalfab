@@ -83,6 +83,50 @@ const SYNTHETIC_DIGEST = {
 const manifest = buildManifest(SYNTHETIC_DIGEST);
 
 /* ============================================================
+   Nestle regression: combined permit set is filename-classified
+   as 'drawing' but contains spec content. plan-intelligence emits
+   summary.spec_section_index[]; coverage builder must consume it.
+   ============================================================ */
+{
+  // Persisted-digest shape: no _pages (stripped on persist), only
+  // summary.spec_section_index. Mimics what the API route reads
+  // from Supabase after plan-intelligence saves the digest.
+  const persistedDigest = {
+    documents: [
+      {
+        filename: '4_Nestle_SCH-FAC_BID-PERMIT_SET.pdf',
+        classification: { kind: 'drawing' },   // misclassified due to filename
+        sheets: [],
+      },
+    ],
+    summary: {
+      tcb_sections: [],
+      spec_section_index: [
+        { code: '05 50 00', title: 'METAL FABRICATIONS',  source_filename: '4_Nestle_SCH-FAC_BID-PERMIT_SET.pdf', first_page: 48 },
+        { code: '08 12 13', title: 'HOLLOW METAL FRAMES', source_filename: '4_Nestle_SCH-FAC_BID-PERMIT_SET.pdf', first_page: 87 },
+        { code: '08 71 00', title: 'DOOR HARDWARE',       source_filename: '4_Nestle_SCH-FAC_BID-PERMIT_SET.pdf', first_page: 92 },
+        { code: '09 91 23', title: 'INTERIOR PAINTING',   source_filename: '4_Nestle_SCH-FAC_BID-PERMIT_SET.pdf', first_page: 98 },
+        { code: '23 00 00', title: 'HVAC',                source_filename: '4_Nestle_SCH-FAC_BID-PERMIT_SET.pdf', first_page: 112 },
+      ],
+      schedules: [],
+    },
+    generated_at: new Date().toISOString(),
+  };
+  const m = buildManifest(persistedDigest);
+  const includedCodes = new Set(m.spec_sections.filter((s) => s.tag === 'included').map((s) => s.code));
+  const excludedCodes = new Set(m.spec_sections.filter((s) => s.tag === 'excluded').map((s) => s.code));
+  check('NESTLE-1: spec_section_index drives section enumeration even when doc is filename-classified as drawing',
+    m.spec_sections.length === 5,
+    `got ${m.spec_sections.length} sections`);
+  check('NESTLE-1: 05 50 00 + 08 12 13 included from spec_section_index',
+    includedCodes.has('05 50 00') && includedCodes.has('08 12 13'),
+    `included: ${[...includedCodes].join(', ')}`);
+  check('NESTLE-1: 08 71 00 + 09 91 23 + 23 00 00 excluded from spec_section_index',
+    excludedCodes.has('08 71 00') && excludedCodes.has('09 91 23') && excludedCodes.has('23 00 00'),
+    `excluded: ${[...excludedCodes].join(', ')}`);
+}
+
+/* ============================================================
    buildManifest cases
    ============================================================ */
 

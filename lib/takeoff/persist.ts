@@ -9,7 +9,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { priceLine, rollup, RateCard, RunLine } from './price-line';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
 const { computeConfidence } = require('./confidence');
 
 interface LineRow extends Record<string, unknown> {

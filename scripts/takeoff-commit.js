@@ -355,6 +355,11 @@ async function main() {
   // Sum weight for density check (run-level)
   const totalWeightLbs = enrichedLines.reduce((a, l) => a + Number(l.total_weight_lbs || 0), 0);
 
+  // Coverage manifest for the manifest_coverage validator. Loaded from
+  // context.json (takeoff-prepare put it there). Null if the coverage
+  // stage hasn't been run for this opp — validator emits a warning.
+  const coverageManifest = context.coverage_manifest || null;
+
   const validation = validateLines(enrichedLines, {
     fullText: docText,
     scheduleCounts,
@@ -365,13 +370,33 @@ async function main() {
     tcbSections: piForValidate?.summary?.tcb_sections || [],
     totalWeightLbs,
     projectSf,
+    coverageManifest,
+    takeoffDoc: takeoff,
   });
   if (validation.findings.length > 0) {
     console.log(`\n--- Validation findings (${validation.findings.length}) ---`);
     for (const f of validation.findings) {
       const tag = f.severity === 'error' ? '⚠ ERROR' : f.severity === 'warning' ? 'WARN' : 'INFO';
-      console.log(`  [${tag}] ${f.category}: ${f.finding.slice(0, 130)}`);
+      console.log(`  [${tag}] ${f.category}: ${f.finding.slice(0, 200)}`);
     }
+  }
+
+  // BLOCKING gate: manifest_coverage_missing errors stop the commit.
+  // This is the completeness invariant — every `included` manifest entry
+  // must be covered by takeoff lines or explicitly excluded with reason
+  // before a takeoff can be persisted.
+  const blockingErrors = validation.findings.filter(
+    (f) => f.severity === 'error' && f.category === 'manifest_coverage_missing'
+  );
+  if (blockingErrors.length > 0) {
+    console.error(`\n❌ Commit BLOCKED: ${blockingErrors.length} manifest_coverage_missing error(s).`);
+    console.error('   The takeoff does not account for every included entry in the coverage manifest.');
+    console.error('   Either:');
+    console.error('     1. Update takeoff.json to cover the missing items, OR');
+    console.error('     2. Add manifest_reconciliation.intentionally_excluded entries with reasons that override policy, OR');
+    console.error('     3. If the manifest is wrong, fix the policy in lib/coverage/tcb-scope-policy.js and re-run scripts/coverage.js.');
+    console.error('   Then re-run this script.');
+    process.exit(2);
   }
   // Re-price any line whose mutations changed labor or quantity_band
   for (let i = 0; i < enrichedLines.length; i++) {

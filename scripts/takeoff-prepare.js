@@ -166,14 +166,37 @@ async function main() {
   fs.writeFileSync(path.join(oppDir, 'context.json'), JSON.stringify(context, null, 2));
   console.log(`Wrote ${path.join(oppDir, 'context.json')}`);
 
+  // Auto-render strategic pages of the largest drawing PDF to PNG so
+  // the takeoff agent can do vision-based review (symbol counting,
+  // dimension chain reads, fab-detail text). Without this, the agent
+  // only sees text-extracted content and misses 60% of typical scope.
+  try {
+    const { autoRenderForOpp } = require('../lib/plan-intelligence/render-pages');
+    const drawingPdf = stagedFiles
+      .filter((f) => f.filename.toLowerCase().endsWith('.pdf'))
+      .map((f) => ({ ...f, full: path.join(oppDir, f.filename), size: fs.statSync(path.join(oppDir, f.filename)).size }))
+      .sort((a, b) => b.size - a.size)[0];
+    if (drawingPdf && summary.sheets) {
+      console.log(`Auto-rendering strategic pages of ${drawingPdf.filename}…`);
+      const drawingPageCount = (summary.sheets || []).length || 79;
+      const result = await autoRenderForOpp({ summary, pdfPath: drawingPdf.full, queueDir: oppDir, drawingPageCount });
+      console.log(`  Rendered ${result.rendered.length} page(s) to ${path.join(oppDir, 'renders')}`);
+      for (const r of result.rendered) {
+        console.log(`    p${r.page}: ${r.reason} (${Math.round(r.size_bytes / 1024)} KB)`);
+      }
+    }
+  } catch (e) {
+    console.log(`  (auto-render skipped: ${e.message})`);
+  }
+
   console.log('\n--- Ready ---');
   console.log(`Stage: ${summary.bid_stage} (${summary.bid_stage_confidence}%)`);
   console.log(`Readiness: ${summary.readiness}`);
   console.log(`TCB sections in spec: ${(summary.tcb_sections || []).map((s) => s.section).join(', ') || 'none'}`);
   console.log(`Files staged: ${stagedFiles.length}`);
-  console.log('\nNext: run Claude Code:');
-  console.log(`  claude -p "$(cat scripts/takeoff.md)" --max-turns 100 --dangerously-skip-permissions`);
-  console.log('Then: node scripts/takeoff-commit.js --opp=' + args.opp);
+  console.log('\nNext: run the autonomous takeoff loop:');
+  console.log(`  node scripts/takeoff-run.js --opp=${args.opp}`);
+  console.log('  (Or for manual mode: claude -p "$(cat scripts/takeoff.md)" --max-turns 100 --dangerously-skip-permissions)');
 }
 
 main().catch((e) => {

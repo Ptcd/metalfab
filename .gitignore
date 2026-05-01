@@ -47,3 +47,7 @@ scripts/__pycache__/
 /tmp/
 scripts/__pycache__/
 .claude/settings.local.json
+.vision-tmp/
+takeoff-queue/*/renders/*.png
+takeoff-queue/*/renders/*-*.png
+

@@ -38,6 +38,9 @@ BRG. PLATE 7" X 10" X 3/4" THK
 DOOR SCHEDULE — Room 103 EMPLOYEE ENTRY F1 HM PTD 3'-0" 7'-0"
 Room 124 QA LAB ETR (existing to remain)
 DEMOLITION PLAN D101 — remove existing partition wall.
+ELEVATION A302 — Wall length per North Elevation @ Receiving Dock 130: 9'-8" V.I.F.
+A1.08 PROVIDE NEW 42" RAIL TO MATCH EXISTING. Demo plan p23 shows the existing rail being removed at this exact location — existing condition documented.
+A1.08 PROVIDE NEW 42" HIGH METAL RAILING AND BI-PARTING GATE TO MATCH EXISTING IN SPACE. POSTS TO BE HEAVY DUTY 4" DIAMETER BOLLARDS.
 `;
 
 const INDUSTRY_PRIORS = [
@@ -344,6 +347,378 @@ const VALIDATOR_CTX = {
   check('Case 14: density_below_typical detected on absurdly low total',
     r.findings.some((f) => f.category === 'density_below_typical'),
     `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 11b: Dimensional V.I.F. ("9'-8" V.I.F.") is standard
+   renovation practice. Should be info-only; do NOT cap confidence.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'handrail', source_kind: 'drawing',
+    source_section: 'A302 elevation',
+    source_evidence: 'Wall length per North Elevation @ Receiving Dock 130: 9\'-8" V.I.F.',
+    quantity: 9.7, quantity_unit: 'LF', quantity_band: 'point',
+    quantity_min: 9.5, quantity_max: 10.5,
+    fab_hrs: 6, ironworker_hrs: 12, material_grade: 'A53',
+    confidence: 0.82, flagged_for_review: false,
+    description: 'Painted steel pipe rail above wall, 9\'-8" length per elevation',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 11b: dimensional V.I.F. produces info finding only',
+    r.findings.some((f) => f.category === 'vif_dimensional_noted'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 11b: dimensional V.I.F. does NOT cap confidence',
+    r.lines[0].confidence >= 0.80, `conf: ${r.lines[0].confidence}`);
+}
+
+/* ============================================================
+   Case 11d: Finish V.I.F. — "match existing" but structural spec
+   (shape/size/dimensions) is fully defined. Should classify as
+   finish-only, cap at 0.85, not 0.50.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'guardrail', source_kind: 'drawing',
+    source_section: 'A1.08',
+    source_evidence: 'PROVIDE NEW 42" HIGH METAL RAILING AND BI-PARTING GATE TO MATCH EXISTING IN SPACE. POSTS TO BE HEAVY DUTY 4" DIAMETER BOLLARDS.',
+    quantity: 1, quantity_unit: 'EA', quantity_band: 'point',
+    quantity_min: 1, quantity_max: 1,
+    fab_hrs: 14, ironworker_hrs: 16, material_grade: 'A53',
+    confidence: 0.90, flagged_for_review: false,
+    description: '42" rail + bi-parting gate, 4" diameter bollard posts',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 11d: finish_vif_only classification fires',
+    r.findings.some((f) => f.category === 'finish_vif_only'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 11d: confidence capped at 0.85 (not 0.50)',
+    r.lines[0].confidence === 0.85, `conf: ${r.lines[0].confidence}`);
+}
+
+/* ============================================================
+   Case 11c: Material V.I.F. with documented existing condition
+   (demo plan reference). Should cap at 0.75, not 0.50.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'guardrail', source_kind: 'drawing',
+    source_section: 'A1.08 + demo plan p23',
+    source_evidence: 'PROVIDE NEW 42" RAIL TO MATCH EXISTING. Demo plan p23 shows the existing rail being removed at this exact location — existing condition documented.',
+    quantity: 1, quantity_unit: 'EA', quantity_band: 'point',
+    quantity_min: 1, quantity_max: 1,
+    fab_hrs: 14, ironworker_hrs: 16, material_grade: 'A53',
+    confidence: 0.85, flagged_for_review: false,
+    description: '42" rail with bi-parting gate, replacement-in-kind',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 11c: documented existing condition resolves V.I.F.',
+    r.findings.some((f) => f.category === 'vif_resolved_by_existing_documentation'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 11c: confidence capped at 0.75 (not 0.50)',
+    r.lines[0].confidence === 0.75, `conf: ${r.lines[0].confidence}`);
+}
+
+/* ============================================================
+   Case 15: Lazy-allowance — low confidence + wide range +
+   "allowance" / "RFI for length" language with NO measurement
+   evidence in source_evidence. Should fail the line.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'guardrail', source_kind: 'drawing',
+    source_section: 'A352',
+    source_evidence: 'A352 note A3.05: PROVIDE SAFETY RAILING AROUND THE ENTIRE PERIMETER OF ROOM',
+    quantity: 30, quantity_unit: 'LF', quantity_band: 'assumed_typical',
+    quantity_min: 0, quantity_max: 60,
+    fab_hrs: 12, ironworker_hrs: 18, material_grade: 'A53',
+    confidence: 0.50, flagged_for_review: true,
+    description: 'Safety pipe rail allowance pending RFI',
+    assumptions: '30 LF allowance pending RFI. Could be 0 or 60 LF.',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 15: lazy_allowance detected (no measurement evidence)',
+    r.findings.some((f) => f.category === 'lazy_allowance'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 15: confidence dropped <= 0.45',
+    r.lines[0].confidence <= 0.45, `conf: ${r.lines[0].confidence}`);
+}
+
+/* ============================================================
+   Case 16: Measured allowance — same kind of line, but
+   source_evidence cites a dimension chain or callout count.
+   Should NOT trigger lazy_allowance.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'bollard', source_kind: 'drawing',
+    source_section: 'p32 Shipping Dock',
+    source_evidence: "Equipment Schedule: '6\" BOLLARD'. Plan callout (1740,269) E60 'TYP.' Adjacent dimension chain along y=192 reads 5'-0\" | 4'-6\" | 4'-6\" | 4'-6\" — 3 bays at 4'-6\" o.c. = 4 bollards.",
+    quantity: 5, quantity_unit: 'EA', quantity_band: 'point',
+    quantity_min: 5, quantity_max: 5,
+    fab_hrs: 8, ironworker_hrs: 16, material_grade: 'A53',
+    confidence: 0.85, flagged_for_review: false,
+    description: '6" steel bollards measured from spacing chain',
+    assumptions: "5 EA measured: 4 at Shipping Dock typical run + 1 at Receiving.",
+  }];
+  const ctx = { ...VALIDATOR_CTX, equipmentScheduleCategories: ['bollard'] };
+  const r = validateLines(lines, ctx);
+  check('Case 16: measured-callout line does NOT trigger lazy_allowance',
+    !r.findings.some((f) => f.category === 'lazy_allowance'),
+    `unexpected findings: ${r.findings.filter(f=>f.category==='lazy_allowance').map(f=>f.finding).join(' | ')}`);
+}
+
+/* ============================================================
+   Case 17: Fabricated quoted span — "match existing" within quotes
+   that doesn't appear verbatim in the package. The new tighter
+   verbatim_quote validator should fire on the quoted span even if
+   the surrounding prose has high token overlap.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'guardrail', source_kind: 'spec',
+    source_section: '05 52 13',
+    source_evidence: 'Per Section 05 52 13 §2.01.B "Provide for erection loads, and for sufficient temporary bracing to maintain true alignment until completion of erection." Section 05 50 00 covers metal fabrications.',
+    quantity: 30, quantity_unit: 'LF', quantity_band: 'point',
+    fab_hrs: 6, ironworker_hrs: 12, material_grade: 'A53',
+    confidence: 0.85, flagged_for_review: false,
+    description: 'Pipe railing per spec',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 17: fabricated_quote fires on quoted span absent from package',
+    r.findings.some((f) => f.category === 'fabricated_quote'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 18: Ghost sheet reference — line cites Detail 3/A060 but
+   A060 isn't in the drawing index.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'handrail', source_kind: 'drawing',
+    source_section: 'A4.13',
+    source_evidence: "Coded note A4.13: 'NEW PAINTED STEEL PIPE RAILING ABOVE WALL. REFER TO DETAIL 3/A060.'",
+    quantity: 30, quantity_unit: 'LF', quantity_band: 'range',
+    quantity_min: 25, quantity_max: 35,
+    fab_hrs: 8, ironworker_hrs: 14, material_grade: 'A53',
+    confidence: 0.80, flagged_for_review: false,
+    description: 'Above-wall rail per Detail 3/A060',
+  }];
+  const ctx = { ...VALIDATOR_CTX, drawingIndexSheets: [
+    { number: 'A000', name: 'PARTITION TYPES & DETAILS' },
+    { number: 'A001', name: 'PARTITION TYPES & DETAILS' },
+    { number: 'A101A', name: 'CONSTRUCTION PLAN' },
+    { number: 'S101', name: 'STRUCTURAL FRAMING' },
+    { number: 'A452', name: 'INTERIOR ELEVATIONS' },
+    { number: 'A453', name: 'INTERIOR ELEVATIONS' },
+    { number: 'A454', name: 'INTERIOR ELEVATIONS' },
+    { number: 'G201', name: 'GENERAL NOTES' },
+  ] };
+  const r = validateLines(lines, ctx);
+  check('Case 18: ghost_sheet_reference fires when A060 not in index',
+    r.findings.some((f) => f.category === 'ghost_sheet_reference'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 19: Relevant page uncited — line cites p27 but plan-intelligence
+   flagged p21 + p27 + p32 as bollard-relevant. p21 is the fab detail
+   the agent missed.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'bollard', source_kind: 'drawing',
+    source_section: 'Equipment Schedule p27',
+    source_page: 27,
+    source_evidence: "Equipment Schedule p27 (1894,1025): '6\" BOLLARD'. Plan callout p27 (524,449) E60 at Receiving Dock.",
+    quantity: 5, quantity_unit: 'EA', quantity_band: 'point',
+    quantity_min: 5, quantity_max: 5,
+    fab_hrs: 8, ironworker_hrs: 16, material_grade: 'A53',
+    confidence: 0.85, flagged_for_review: false,
+    description: '6" bollards from equipment schedule',
+  }];
+  const ctx = { ...VALIDATOR_CTX, categoryPages: { bollard: [21, 27, 32] } };
+  const r = validateLines(lines, ctx);
+  check('Case 19: relevant_page_uncited fires for missed fab-detail page',
+    r.findings.some((f) => f.category === 'relevant_page_uncited' || f.category === 'relevant_pages_unread_at_run_level'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 20: Multi-detail sheet undercited — S101 has 4 details, line
+   cites "Detail B/S101" only, undercount fires.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'structural_beam', source_kind: 'drawing',
+    source_section: 'S101',
+    source_page: 19,
+    source_evidence: "S101 Detail 1/S101: 'W10X68 T/STL EL +10'-2\". 12 LF.'",
+    quantity: 12, quantity_unit: 'LF', quantity_band: 'point',
+    quantity_min: 11, quantity_max: 14,
+    fab_hrs: 8, ironworker_hrs: 14, material_grade: 'A992',
+    steel_shape_designation: 'W10x68', flagged_for_review: false,
+    description: 'W10x68 beam',
+  }];
+  const ctx = { ...VALIDATOR_CTX, sheetDetailCounts: { 'S101': 4 } };
+  const r = validateLines(lines, ctx);
+  check('Case 20: multi_detail_sheet_undercited fires when 1 of 4 details cited',
+    r.findings.some((f) => f.category === 'multi_detail_sheet_undercited'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 21: Ghost spec section — line cites Section 05 52 13 but
+   that section isn't in the package's spec coverage.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'guardrail', source_kind: 'spec',
+    source_evidence: 'Per Section 05 52 13 spec, custom-fabricated pipe railings ASTM A53 Grade B.',
+    quantity: 30, quantity_unit: 'LF', quantity_band: 'range',
+    fab_hrs: 6, ironworker_hrs: 12, material_grade: 'A53',
+    confidence: 0.80, flagged_for_review: false,
+    description: 'Pipe rail per spec',
+  }];
+  const ctx = { ...VALIDATOR_CTX, specSectionsAbsent: ['05 52 13'] };
+  const r = validateLines(lines, ctx);
+  check('Case 21: ghost_spec_reference fires when section absent from package',
+    r.findings.some((f) => f.category === 'ghost_spec_reference'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 22: Blank spec sheets — sheets titled SPECIFICATIONS in the
+   drawing index but identical-length-across-siblings (template-only).
+   Real-world sheet_title from per-page title blocks is often null,
+   so the validator falls back to drawing_index titles.
+   ============================================================ */
+{
+  const ctx = { ...VALIDATOR_CTX,
+    sheets: [
+      // 3 sheets with identical body_text_length signals template-only
+      { sheet_no: 'G900', sheet_title: null, body_text_length: 1871, page_number: 8 },
+      { sheet_no: 'G901', sheet_title: null, body_text_length: 1871, page_number: 9 },
+      { sheet_no: 'G910', sheet_title: null, body_text_length: 1871, page_number: 18 },
+      { sheet_no: 'A101', sheet_title: 'CONSTRUCTION PLAN', body_text_length: 5000, page_number: 27 },
+    ],
+    drawingIndexSheets: [
+      { number: 'G900', name: 'SPECIFICATIONS' },
+      { number: 'G901', name: 'SPECIFICATIONS' },
+      { number: 'G910', name: 'SPECIFICATIONS' },
+      { number: 'A101', name: 'CONSTRUCTION PLAN' },
+    ],
+  };
+  const r = validateLines([], ctx);
+  check('Case 22: spec_pages_text_extraction_failed fires when SPECIFICATIONS sheets share template-only body length (downgraded from ERROR to WARNING after Nestle false positive — text extraction missing on CAD-text-to-outlines sheets is the dominant failure mode, not actually blank pages)',
+    r.findings.some((f) => f.category === 'spec_pages_text_extraction_failed'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+}
+
+/* ============================================================
+   Case 23: Coded note silently dropped — note glossary contains
+   a TCB-relevant note that's neither cited nor excluded.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'structural_beam', source_kind: 'drawing',
+    source_section: 'S101',
+    source_evidence: 'S101: W10X68 T/STL EL +10\'-2"',
+    quantity: 12, quantity_unit: 'LF', quantity_band: 'point',
+    fab_hrs: 8, ironworker_hrs: 14, material_grade: 'A992',
+    steel_shape_designation: 'W10x68', flagged_for_review: false,
+    description: 'W10x68 RTU beam',
+  }];
+  const ctx = { ...VALIDATOR_CTX,
+    noteGlossary: [
+      { code: 'A1.13', source_page: 27, description: 'NEW SECTION OF FENCE AND GATE TO MATCH ADJACENT EXISTING. RELOCATE OR MATCH 1 FOR 1.' },
+      { code: 'A4.15', source_page: 31, description: '6" ROUND STAINLESS STEEL SPEAK-THRU INCORPORATED INTO TRANSACTION WINDOW.' },
+      { code: 'A1.10', source_page: 27, description: 'EXISTING LOCKERS TO BE RELOCATED IN PLACE.' },  // not TCB → should NOT fire
+    ],
+    exclusions: ['Aluminum gates by storefront sub'],  // doesn't mention A1.13 or A4.15
+  };
+  const r = validateLines(lines, ctx);
+  const undecided = r.findings.filter((f) => f.category === 'coded_note_undecided');
+  check('Case 23: coded_note_undecided fires for A1.13 fence/gate',
+    undecided.some((f) => f.finding.includes('A1.13')),
+    `findings: ${undecided.map(f=>f.finding.slice(0,100)).join(' | ')}`);
+  check('Case 23: coded_note_undecided fires for A4.15 speak-thru',
+    undecided.some((f) => f.finding.includes('A4.15')),
+    `findings: ${undecided.map(f=>f.finding.slice(0,100)).join(' | ')}`);
+  check('Case 23: NON-TCB note (A1.10 lockers) does NOT fire',
+    !undecided.some((f) => f.finding.includes('A1.10')),
+    `unexpected: ${undecided.filter(f=>f.finding.includes('A1.10')).map(f=>f.finding.slice(0,100)).join(' | ')}`);
+}
+
+/* ============================================================
+   Case 24: Match-existing without documented existing condition
+   — note A1.13 says "match existing fence" but no demo note
+   removes an existing fence in this package.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'structural_beam', source_kind: 'drawing',
+    source_section: 'S101', source_evidence: 'S101: W10X68', quantity: 12,
+    quantity_unit: 'LF', quantity_band: 'point', fab_hrs: 8, ironworker_hrs: 14,
+    material_grade: 'A992', steel_shape_designation: 'W10x68', description: 'W10x68',
+  }];
+  const ctx = { ...VALIDATOR_CTX,
+    noteGlossary: [
+      { code: 'A1.13', source_page: 27, description: 'NEW SECTION OF FENCE AND GATE TO MATCH ADJACENT EXISTING TO REMAIN SECTION OF FENCE.' },
+      { code: 'D1.25', source_page: 23, description: 'REMOVE EXISTING BOLLARD IN ITS ENTIRETY.' },  // bollard, not fence
+    ],
+    exclusions: [],
+    rfisRecommended: [],
+  };
+  const r = validateLines(lines, ctx);
+  check('Case 24: match_existing_no_anchor fires when fence removal is undocumented',
+    r.findings.some((f) => f.category === 'match_existing_no_anchor' && f.finding.includes('A1.13')),
+    `findings: ${r.findings.map(f=>f.category+':'+f.finding.slice(0,60)).join(' | ')}`);
+}
+
+/* ============================================================
+   Case 25: Structural member designation missing — line is
+   structural, cites a structural sheet, but no W##/HSS##/etc.
+   in source_evidence.
+   ============================================================ */
+{
+  const lines = [{
+    line_no: 1, category: 'structural_beam', source_kind: 'drawing',
+    source_section: 'S101',
+    source_evidence: 'S101 Detail Section A: "(N) NEW WF BEAM" + "EXIST. WF COLUMN UNKNOWN SIZE"',
+    quantity: 1, quantity_unit: 'LS', quantity_band: 'assumed_typical',
+    fab_hrs: 8, ironworker_hrs: 8, material_grade: 'A992',
+    steel_shape_designation: null, description: 'WF beam unknown size',
+  }];
+  const r = validateLines(lines, VALIDATOR_CTX);
+  check('Case 25: structural_member_designation_missing fires when no W##x## in evidence',
+    r.findings.some((f) => f.category === 'structural_member_designation_missing'),
+    `findings: ${r.findings.map(f=>f.category).join(', ')}`);
+  check('Case 25: confidence capped at 0.55 for unsized structural line',
+    r.lines[0].confidence <= 0.55, `conf: ${r.lines[0].confidence}`);
+}
+
+/* ============================================================
+   Case 26: Bid-form line undecided — form has 08 00 00 doors
+   but takeoff has no HM frames AND no exclusion mentioning it.
+   ============================================================ */
+{
+  const { auditBidFormLineCoverage } = require('../lib/plan-intelligence/parse-bid-form');
+  const csiCodes = [
+    { code: '05 10 00', description: 'Structural Steel' },
+    { code: '08 00 00', description: 'Doors, Frames & Hardware' },
+  ];
+  const findings = auditBidFormLineCoverage(csiCodes, ['structural_beam'], []);
+  check('Case 26: bid_form_line_undecided fires for 08 00 00 when no HM line / no exclusion',
+    findings.some((f) => f.finding.includes('08 00 00')),
+    `findings: ${findings.map(f=>f.finding.slice(0,80)).join(' | ')}`);
+
+  // And the negative: if exclusions mention door/frames sub, it should NOT fire
+  const findings2 = auditBidFormLineCoverage(csiCodes, ['structural_beam'], ['Hollow metal frames priced by door/hardware sub']);
+  check('Case 26b: explicit exclusion satisfies the audit',
+    !findings2.some((f) => f.finding.includes('08 00 00')),
+    `unexpected: ${findings2.map(f=>f.finding.slice(0,80)).join(' | ')}`);
 }
 
 /* ============================================================

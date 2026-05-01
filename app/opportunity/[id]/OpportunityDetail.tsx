@@ -13,6 +13,7 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { BidSubmitButton } from "./BidSubmitButton";
 import { RunTakeoffQaButton } from "./RunTakeoffQaButton";
 import { RunCoverageButton } from "./RunCoverageButton";
+import { RunPlanIntelligenceButton } from "./RunPlanIntelligenceButton";
 import { SendEmailButton } from "../../components/SendEmailButton";
 import { uploadOneFile } from "@/lib/upload-document";
 import { TakeoffPanel } from "./TakeoffPanel";
@@ -694,6 +695,7 @@ export function OpportunityDetail({ opportunity, greenThreshold, yellowThreshold
             hasTakeoff={documents.some((d) => d.category === "takeoff")}
             hasQaReport={!!qaReport}
           />
+          <RunPlanIntelligenceButton oppId={opp.id} />
           <RunCoverageButton oppId={opp.id} />
           {saved && <span className="text-sm text-emerald-600 dark:text-emerald-400">Saved</span>}
         </div>

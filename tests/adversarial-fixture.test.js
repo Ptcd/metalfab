@@ -611,8 +611,8 @@ const VALIDATOR_CTX = {
     ],
   };
   const r = validateLines([], ctx);
-  check('Case 22: spec_pages_blank fires when SPECIFICATIONS sheets share template-only body length',
-    r.findings.some((f) => f.category === 'spec_pages_blank'),
+  check('Case 22: spec_pages_text_extraction_failed fires when SPECIFICATIONS sheets share template-only body length (downgraded from ERROR to WARNING after Nestle false positive — text extraction missing on CAD-text-to-outlines sheets is the dominant failure mode, not actually blank pages)',
+    r.findings.some((f) => f.category === 'spec_pages_text_extraction_failed'),
     `findings: ${r.findings.map(f=>f.category).join(', ')}`);
 }
 

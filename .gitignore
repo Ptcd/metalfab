@@ -51,3 +51,6 @@ scripts/__pycache__/
 takeoff-queue/*/renders/*.png
 takeoff-queue/*/renders/*-*.png
 
+# Per-opportunity working dir for Nestle — source docs live in Supabase
+# storage, snapshots/handoff/scratch files are all local-only.
+/nestle/
